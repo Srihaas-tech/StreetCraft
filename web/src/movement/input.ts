@@ -1,4 +1,4 @@
-export type MovementKey = 'KeyW' | 'KeyA' | 'KeyS' | 'KeyD';
+export type MovementKey = 'KeyW' | 'KeyA' | 'KeyS' | 'KeyD' | 'Space';
 
 export interface PointerLockEventTarget extends EventTarget {
   readonly pointerLockElement: Element | null;
@@ -13,7 +13,7 @@ export interface MouseDelta {
   y: number;
 }
 
-const movementKeys = new Set<MovementKey>(['KeyW', 'KeyA', 'KeyS', 'KeyD']);
+const movementKeys = new Set<MovementKey>(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space']);
 
 export class MovementInput {
   private readonly pressedKeys = new Set<MovementKey>();

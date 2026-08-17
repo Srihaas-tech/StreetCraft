@@ -24,11 +24,11 @@ function createControls(options: ConstructorParameters<typeof CameraController>[
   return { canvas, input, controller };
 }
 
-function press(code: 'KeyW' | 'KeyA' | 'KeyS' | 'KeyD'): void {
+function press(code: 'KeyW' | 'KeyA' | 'KeyS' | 'KeyD' | 'Space'): void {
   document.dispatchEvent(new KeyboardEvent('keydown', { code }));
 }
 
-function release(code: 'KeyW' | 'KeyA' | 'KeyS' | 'KeyD'): void {
+function release(code: 'KeyW' | 'KeyA' | 'KeyS' | 'KeyD' | 'Space'): void {
   document.dispatchEvent(new KeyboardEvent('keyup', { code }));
 }
 
@@ -176,9 +176,9 @@ describe('movement input lifecycle', () => {
   it('stops tracking keys after dispose (catches leaked document listeners)', () => {
     const { input } = createControls();
     input.dispose();
-    press('KeyW');
+    press('Space');
 
-    expect(input.isPressed('KeyW')).toBe(false);
+    expect(input.isPressed('Space')).toBe(false);
   });
 
   it('forwards pointer-lock requests to its configured element (catches a disconnected lock request)', () => {
@@ -231,6 +231,99 @@ describe('movement input lifecycle', () => {
     release('KeyW');
 
     expect(input.isPressed('KeyW')).toBe(false);
+  });
+});
+
+class InMemoryCollisionWorld {
+  private readonly solidBlocks = new Set<string>();
+
+  addSolidBlock(x: number, y: number, z: number): void {
+    this.solidBlocks.add(`${x},${y},${z}`);
+  }
+
+  isSolidBlock(x: number, y: number, z: number): boolean {
+    return this.solidBlocks.has(`${x},${y},${z}`);
+  }
+}
+
+describe('street view physics', () => {
+  it('stops at a solid wall (catches movement through terrain)', () => {
+    const world = new InMemoryCollisionWorld();
+    for (const y of [-2, -1, 0, 1]) {
+      world.addSolidBlock(1, y, 0);
+    }
+    const { controller } = createControls({
+      position: new Vector3(0, 2.62, 0),
+      speed: 6,
+      collisionWorld: world,
+    });
+    press('KeyD');
+
+    controller.update(1);
+
+    expect(controller.position.x).toBeCloseTo(0.7, 4);
+  });
+
+  it('reports grounded when standing on a solid surface (catches falling through a floor)', () => {
+    const world = new InMemoryCollisionWorld();
+    world.addSolidBlock(0, 0, 0);
+    const { controller } = createControls({
+      position: new Vector3(0.5, 2.62, 0.5),
+      collisionWorld: world,
+    });
+
+    controller.update(0);
+
+    expect(controller.grounded).toBe(true);
+  });
+
+  it('applies jump velocity once from the ground (catches missing jump input)', () => {
+    const world = new InMemoryCollisionWorld();
+    world.addSolidBlock(0, 0, 0);
+    const { controller } = createControls({
+      position: new Vector3(0.5, 2.62, 0.5),
+      collisionWorld: world,
+      jumpVelocity: 8,
+    });
+    controller.update(0);
+    press('Space');
+
+    controller.update(0);
+
+    expect(controller).toMatchObject({ velocity: new Vector3(0, 8, 0) });
+  });
+
+  it('does not repeat a held jump after landing (catches jump auto-repeat)', () => {
+    const world = new InMemoryCollisionWorld();
+    world.addSolidBlock(0, 0, 0);
+    const { controller } = createControls({
+      position: new Vector3(0.5, 2.62, 0.5),
+      collisionWorld: world,
+      jumpVelocity: 8,
+    });
+    controller.update(0);
+    press('Space');
+    controller.update(0);
+    controller.update(1);
+
+    controller.update(0);
+
+    expect(controller.velocity.y).toBe(0);
+    expect(controller.grounded).toBe(true);
+  });
+
+  it('applies delta-time gravity with a terminal speed (catches frame-dependent falling)', () => {
+    const { controller } = createControls({
+      position: new Vector3(0, 10, 0),
+      collisionWorld: new InMemoryCollisionWorld(),
+      gravity: 24,
+      terminalVelocity: 48,
+    });
+
+    controller.update(0.5);
+
+    expect(controller.position.y).toBeCloseTo(4, 10);
+    expect(controller.velocity.y).toBe(-12);
   });
 });
 
