@@ -4,7 +4,7 @@ StreetCraft is a separate public first-person web experience for BlueMap terrain
 
 ## Development
 
-Install JavaScript dependencies with `npm install`, then run:
+StreetCraft requires Node.js `^20.19.0 || >=22.12.0` for Vite 8. Install JavaScript dependencies with `npm install`, then run:
 
 ```text
 npm test
