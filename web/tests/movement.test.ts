@@ -1,6 +1,7 @@
 import { Vector3 } from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CameraController } from '../src/movement/camera-controller';
+import { resolveMovement } from '../src/movement/collision';
 import { MovementInput } from '../src/movement/input';
 
 const inputs: MovementInput[] = [];
@@ -176,6 +177,14 @@ describe('movement input lifecycle', () => {
   it('stops tracking keys after dispose (catches leaked document listeners)', () => {
     const { input } = createControls();
     input.dispose();
+    press('KeyW');
+
+    expect(input.isPressed('KeyW')).toBe(false);
+  });
+
+  it('clears Space after dispose (catches a stuck jump key)', () => {
+    const { input } = createControls();
+    input.dispose();
     press('Space');
 
     expect(input.isPressed('Space')).toBe(false);
@@ -246,6 +255,123 @@ class InMemoryCollisionWorld {
   }
 }
 
+function resolveInWorld(
+  world: InMemoryCollisionWorld,
+  position: { x: number; y: number; z: number },
+  velocity: { x: number; y: number; z: number },
+  deltaSeconds: number,
+  gravity = 0,
+  terminalVelocity = 48,
+) {
+  return resolveMovement({
+    world,
+    position,
+    velocity,
+    deltaSeconds,
+    gravity,
+    terminalVelocity,
+  });
+}
+
+describe('collision resolution', () => {
+  it('clamps leftward movement against a negative-coordinate wall (catches incorrect block flooring)', () => {
+    const world = new InMemoryCollisionWorld();
+    world.addSolidBlock(-2, 1, 0);
+
+    const result = resolveInWorld(world, { x: 0, y: 2.62, z: 0.5 }, { x: -5, y: 0, z: 0 }, 1);
+
+    expect(result.position.x).toBeCloseTo(-0.7, 6);
+    expect(result.position.y).toBe(2.62);
+    expect(result.position.z).toBe(0.5);
+    expect(result.velocity.x).toBe(0);
+  });
+
+  it('clamps Z movement against a solid block (catches missing Z-axis resolution)', () => {
+    const world = new InMemoryCollisionWorld();
+    world.addSolidBlock(0, 1, -2);
+
+    const result = resolveInWorld(world, { x: 0.5, y: 2.62, z: 0 }, { x: 0, y: 0, z: -5 }, 1);
+
+    expect(result.position.x).toBe(0.5);
+    expect(result.position.y).toBe(2.62);
+    expect(result.position.z).toBeCloseTo(-0.7, 6);
+    expect(result.velocity.z).toBe(0);
+  });
+
+  it('stops an upward player at a solid ceiling (catches upward AABB penetration)', () => {
+    const world = new InMemoryCollisionWorld();
+    world.addSolidBlock(0, 3, 0);
+
+    const result = resolveInWorld(world, { x: 0.5, y: 2.62, z: 0.5 }, { x: 0, y: 5, z: 0 }, 1);
+
+    expect(result.position.x).toBe(0.5);
+    expect(result.position.y).toBeCloseTo(2.82, 6);
+    expect(result.position.z).toBe(0.5);
+    expect(result.velocity.y).toBe(0);
+    expect(result.grounded).toBe(false);
+  });
+
+  it('does not tunnel through a wall at high speed (catches a single-step collision)', () => {
+    const world = new InMemoryCollisionWorld();
+    world.addSolidBlock(2, 1, 0);
+
+    const result = resolveInWorld(world, { x: 0, y: 2.62, z: 0.5 }, { x: 100, y: 0, z: 0 }, 1);
+
+    expect(result.position.x).toBeCloseTo(1.7, 6);
+    expect(result.velocity.x).toBe(0);
+  });
+
+  it('rests on a floor across repeated gravity frames (catches accumulated downward penetration)', () => {
+    const world = new InMemoryCollisionWorld();
+    world.addSolidBlock(0, 0, 0);
+    const first = resolveInWorld(world, { x: 0.5, y: 2.62, z: 0.5 }, { x: 0, y: 0, z: 0 }, 1 / 60, 24);
+    const second = resolveInWorld(world, first.position, first.velocity, 1 / 60, 24);
+
+    expect(first.position.y).toBeCloseTo(2.62, 6);
+    expect(second.position.y).toBeCloseTo(2.62, 6);
+    expect(second.velocity.y).toBe(0);
+    expect(second.grounded).toBe(true);
+  });
+
+  it('clamps gravity at the configured terminal velocity (catches unbounded falling speed)', () => {
+    const result = resolveInWorld(
+      new InMemoryCollisionWorld(),
+      { x: 0, y: 100, z: 0 },
+      { x: 0, y: 0, z: 0 },
+      1,
+      100,
+      10,
+    );
+
+    expect(result.position.x).toBe(0);
+    expect(result.position.y).toBeCloseTo(90, 6);
+    expect(result.position.z).toBe(0);
+    expect(result.velocity).toMatchObject({ x: 0, y: -10, z: 0 });
+  });
+
+  it('treats non-finite and negative deltas as zero physics time (catches movement on invalid input)', () => {
+    const nonFinite = resolveInWorld(
+      new InMemoryCollisionWorld(),
+      { x: -3, y: 4, z: 5 },
+      { x: 2, y: -1, z: 3 },
+      Number.NaN,
+      24,
+    );
+    const negative = resolveInWorld(
+      new InMemoryCollisionWorld(),
+      { x: -3, y: 4, z: 5 },
+      { x: 2, y: -1, z: 3 },
+      -1,
+      24,
+    );
+
+    expect(nonFinite.position).toMatchObject({ x: -3, y: 4, z: 5 });
+    expect(nonFinite.velocity).toMatchObject({ x: 2, y: -1, z: 3 });
+    expect(negative.position).toMatchObject({ x: -3, y: 4, z: 5 });
+    expect(negative.velocity).toMatchObject({ x: 2, y: -1, z: 3 });
+  });
+});
+
 describe('street view physics', () => {
   it('stops at a solid wall (catches movement through terrain)', () => {
     const world = new InMemoryCollisionWorld();
@@ -293,6 +419,22 @@ describe('street view physics', () => {
     expect(controller).toMatchObject({ velocity: new Vector3(0, 8, 0) });
   });
 
+  it('jumps when Space is pressed on the first grounded update (catches stale grounded state)', () => {
+    const world = new InMemoryCollisionWorld();
+    world.addSolidBlock(0, 0, 0);
+    const { controller } = createControls({
+      position: new Vector3(0.5, 2.62, 0.5),
+      collisionWorld: world,
+      jumpVelocity: 8,
+    });
+    press('Space');
+
+    controller.update(0);
+
+    expect(controller.velocity.y).toBe(8);
+    expect(controller.grounded).toBe(false);
+  });
+
   it('does not repeat a held jump after landing (catches jump auto-repeat)', () => {
     const world = new InMemoryCollisionWorld();
     world.addSolidBlock(0, 0, 0);
@@ -324,6 +466,26 @@ describe('street view physics', () => {
 
     expect(controller.position.y).toBeCloseTo(4, 10);
     expect(controller.velocity.y).toBe(-12);
+  });
+
+  it('keeps yaw-relative diagonal motion normalized while physics is enabled (catches a no-world-only implementation)', () => {
+    const { canvas, controller } = createControls({
+      collisionWorld: new InMemoryCollisionWorld(),
+      gravity: 0,
+      mouseSensitivity: 1,
+      speed: 10,
+    });
+    Object.defineProperty(document, 'pointerLockElement', { configurable: true, value: canvas });
+    moveMouse(Math.PI / 2, 0);
+    controller.update(0);
+    press('KeyW');
+    press('KeyD');
+
+    controller.update(1);
+
+    expect(controller.position.x).toBeCloseTo(-Math.sqrt(50));
+    expect(controller.position.y).toBe(0);
+    expect(controller.position.z).toBeCloseTo(-Math.sqrt(50));
   });
 });
 

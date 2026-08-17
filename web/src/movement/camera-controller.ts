@@ -119,6 +119,15 @@ export class CameraController {
       return;
     }
 
+    this.groundedState = resolveMovement({
+      position: this.position,
+      velocity: this.velocityState,
+      bounds: this.playerBounds,
+      world: this.collisionWorld,
+      deltaSeconds: 0,
+      gravity: this.gravity,
+      terminalVelocity: this.terminalVelocity,
+    }).grounded;
     const jumpPressed = this.input.isPressed('Space');
     const jumped = this.groundedState && jumpPressed && !this.jumpWasPressed;
     if (jumped) this.velocityState.y = this.jumpVelocity;
