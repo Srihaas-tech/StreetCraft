@@ -4,6 +4,10 @@ export interface PointerLockEventTarget extends EventTarget {
   readonly pointerLockElement: Element | null;
 }
 
+export type PointerLockElement = Omit<HTMLElement, 'requestPointerLock'> & {
+  requestPointerLock(): void | Promise<void>;
+};
+
 export interface MouseDelta {
   x: number;
   y: number;
@@ -17,7 +21,7 @@ export class MovementInput {
   private mouseY = 0;
 
   constructor(
-    private readonly element: HTMLElement,
+    private readonly element: PointerLockElement,
     private readonly eventTarget: PointerLockEventTarget,
   ) {
     this.eventTarget.addEventListener('keydown', this.handleKeyDown);
@@ -36,8 +40,8 @@ export class MovementInput {
     return delta;
   }
 
-  requestPointerLock(): void {
-    this.element.requestPointerLock();
+  requestPointerLock(): ReturnType<PointerLockElement['requestPointerLock']> {
+    return this.element.requestPointerLock();
   }
 
   dispose(): void {

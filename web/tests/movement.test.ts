@@ -90,6 +90,33 @@ describe('first-person movement', () => {
     expect(controller.position.length()).toBeCloseTo(10);
   });
 
+  it('uses yaw-relative directions after turning 90 degrees (catches world-axis movement)', () => {
+    const { canvas, controller } = createControls({ mouseSensitivity: 1, speed: 6 });
+    Object.defineProperty(document, 'pointerLockElement', { configurable: true, value: canvas });
+    moveMouse(Math.PI / 2, 0);
+    controller.update(0);
+    press('KeyW');
+
+    controller.update(1);
+
+    expect(controller.position.x).toBeCloseTo(-6);
+    expect(controller.position.y).toBe(0);
+    expect(controller.position.z).toBeCloseTo(0);
+  });
+
+  it('uses yaw-relative right movement after turning 90 degrees (catches a world-axis right vector)', () => {
+    const { canvas, controller } = createControls({ mouseSensitivity: 1, speed: 6 });
+    Object.defineProperty(document, 'pointerLockElement', { configurable: true, value: canvas });
+    moveMouse(Math.PI / 2, 0);
+    controller.update(0);
+    press('KeyD');
+
+    controller.update(1);
+
+    expect(controller.position.x).toBeCloseTo(0);
+    expect(controller.position.z).toBeCloseTo(-6);
+  });
+
   it('uses pointer-locked mouse deltas for yaw and pitch (catches ignored mouse look)', () => {
     const { canvas, controller } = createControls({ mouseSensitivity: 0.01 });
     Object.defineProperty(document, 'pointerLockElement', { configurable: true, value: canvas });
@@ -169,6 +196,35 @@ describe('movement input lifecycle', () => {
     expect(requests).toBe(1);
   });
 
+  it('returns a rejected pointer-lock request so callers can handle it (catches hidden lock failures)', async () => {
+    const canvas = document.createElement('canvas');
+    const rejection = Promise.reject(new Error('Pointer lock denied'));
+    void rejection.catch(() => undefined);
+    Object.defineProperty(canvas, 'requestPointerLock', {
+      configurable: true,
+      value: () => rejection,
+    });
+    const input = new MovementInput(canvas, document);
+    inputs.push(input);
+
+    expect(input.requestPointerLock()).toBe(rejection);
+    await expect(input.requestPointerLock()).rejects.toThrow('Pointer lock denied');
+  });
+
+  it('tracks keys through an injected event target (catches hidden dependence on global document state)', () => {
+    const canvas = document.createElement('canvas');
+    const eventTarget = new EventTarget();
+    Object.defineProperty(eventTarget, 'pointerLockElement', { configurable: true, value: null });
+    const input = new MovementInput(canvas, eventTarget as MovementInputEventTarget);
+    inputs.push(input);
+    const event = new Event('keydown');
+    Object.defineProperty(event, 'code', { value: 'KeyW' });
+
+    eventTarget.dispatchEvent(event);
+
+    expect(input.isPressed('KeyW')).toBe(true);
+  });
+
   it('clears a released key (catches stuck keyboard movement)', () => {
     const { input } = createControls();
     press('KeyW');
@@ -177,3 +233,5 @@ describe('movement input lifecycle', () => {
     expect(input.isPressed('KeyW')).toBe(false);
   });
 });
+
+type MovementInputEventTarget = ConstructorParameters<typeof MovementInput>[1];
