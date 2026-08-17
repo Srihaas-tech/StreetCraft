@@ -1,4 +1,11 @@
-import { BoxGeometry, Mesh, MeshBasicMaterial, Vector3 } from 'three';
+import {
+  BoxGeometry,
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  PlaneGeometry,
+  Vector3,
+} from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createBlockInfo,
@@ -12,7 +19,8 @@ const meshes: Mesh[] = [];
 afterEach(() => {
   for (const mesh of meshes.splice(0)) {
     mesh.geometry.dispose();
-    (mesh.material as MeshBasicMaterial).dispose();
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const material of materials) material.dispose();
   }
 });
 
@@ -20,6 +28,17 @@ function blockAt(x: number, y: number, z: number): Mesh {
   const mesh = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial());
   mesh.position.set(x, y, z);
   mesh.updateMatrixWorld();
+  return trackMesh(mesh);
+}
+
+function planeAt(x: number, y: number, z: number): Mesh {
+  const mesh = new Mesh(new PlaneGeometry(2, 2), new MeshBasicMaterial());
+  mesh.position.set(x, y, z);
+  mesh.updateMatrixWorld();
+  return trackMesh(mesh);
+}
+
+function trackMesh(mesh: Mesh): Mesh {
   meshes.push(mesh);
   return mesh;
 }
@@ -91,6 +110,107 @@ describe('block raycasting', () => {
     });
 
     expect(hit).toMatchObject({ x: -1, y: 0, z: -4 });
+  });
+
+  it('uses an inverse-transpose normal through nested rotation and non-uniform scale (catches transformed-normal drift)', () => {
+    const parent = new Group();
+    parent.position.set(0, 0, -5);
+    parent.rotation.y = -Math.PI / 4;
+    parent.scale.set(2, 1, 0.5);
+    const terrainFace = trackMesh(new Mesh(new PlaneGeometry(2, 2), new MeshBasicMaterial()));
+    terrainFace.rotation.y = Math.PI / 4;
+    parent.add(terrainFace);
+    parent.updateWorldMatrix(true, true);
+    const expectedNormal = new Vector3(-3 / Math.sqrt(34), 0, 5 / Math.sqrt(34));
+
+    const hit = raycastBlock({
+      origin: new Vector3(0, 0, -5).addScaledVector(expectedNormal, 3),
+      direction: expectedNormal.clone().negate(),
+      maximumDistance: 10,
+      targetObjects: [parent],
+    });
+
+    expect(hit?.normal.x).toBeCloseTo(-3 / Math.sqrt(34));
+    expect(hit?.normal.y).toBeCloseTo(0);
+    expect(hit?.normal.z).toBeCloseTo(5 / Math.sqrt(34));
+    expect(hit).toMatchObject({ x: 0, y: 0, z: -6 });
+  });
+
+  it('skips a hidden nearest terrain mesh (catches selection of hidden objects)', () => {
+    const hiddenNearest = blockAt(0, 0, -4);
+    hiddenNearest.visible = false;
+    const visibleFarther = blockAt(0, 0, -8);
+
+    const hit = raycastBlock({
+      origin: new Vector3(0, 0, 0),
+      direction: new Vector3(0, 0, -1),
+      maximumDistance: 10,
+      targetObjects: [hiddenNearest, visibleFarther],
+    });
+
+    expect(hit).toMatchObject({ distance: 7.5, z: -8 });
+  });
+
+  it('skips a mesh hidden by an ancestor (catches ignored parent visibility)', () => {
+    const hiddenParent = new Group();
+    hiddenParent.visible = false;
+    hiddenParent.add(blockAt(0, 0, -4));
+    const visibleFarther = blockAt(0, 0, -8);
+
+    const hit = raycastBlock({
+      origin: new Vector3(0, 0, 0),
+      direction: new Vector3(0, 0, -1),
+      maximumDistance: 10,
+      targetObjects: [hiddenParent, visibleFarther],
+    });
+
+    expect(hit).toMatchObject({ distance: 7.5, z: -8 });
+  });
+
+  it('skips a nearest face whose effective array material is invisible (catches invisible material hits)', () => {
+    const materials = Array.from({ length: 6 }, () => new MeshBasicMaterial());
+    materials[4]!.visible = false;
+    const hiddenByMaterial = trackMesh(new Mesh(new BoxGeometry(1, 1, 1), materials));
+    hiddenByMaterial.position.set(0, 0, -4);
+    hiddenByMaterial.updateMatrixWorld();
+    const visibleFarther = blockAt(0, 0, -8);
+
+    const hit = raycastBlock({
+      origin: new Vector3(0, 0, 0),
+      direction: new Vector3(0, 0, -1),
+      maximumDistance: 10,
+      targetObjects: [hiddenByMaterial, visibleFarther],
+    });
+
+    expect(hit).toMatchObject({ distance: 7.5, z: -8 });
+  });
+
+  it('nudges an exact zero-coordinate face into its solid negative block (catches unadjusted face flooring)', () => {
+    const terrainFace = planeAt(0, 0, 0);
+
+    const hit = raycastBlock({
+      origin: new Vector3(0, 0, 3),
+      direction: new Vector3(0, 0, -1),
+      maximumDistance: 10,
+      targetObjects: [terrainFace],
+    });
+
+    expect(hit).toMatchObject({ x: 0, y: 0, z: -1 });
+  });
+
+  it('nudges an exact negative-coordinate face into the preceding negative block (catches negative boundary flooring)', () => {
+    const terrainFace = planeAt(-1, 0, -4);
+    terrainFace.rotation.y = Math.PI / 2;
+    terrainFace.updateMatrixWorld();
+
+    const hit = raycastBlock({
+      origin: new Vector3(2, 0, -4),
+      direction: new Vector3(-1, 0, 0),
+      maximumDistance: 10,
+      targetObjects: [terrainFace],
+    });
+
+    expect(hit).toMatchObject({ x: -2, y: 0, z: -4 });
   });
 });
 

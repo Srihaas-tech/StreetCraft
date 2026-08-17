@@ -1,4 +1,4 @@
-import { Object3D, Raycaster, Vector3 } from 'three';
+import { Material, Matrix3, Object3D, Raycaster, Vector3 } from 'three';
 
 export interface RaycastBlockRequest {
   origin: Vector3;
@@ -41,11 +41,16 @@ export function raycastBlock(request: RaycastBlockRequest): BlockRaycastHit | un
   }
 
   const intersection = raycaster.intersectObjects([...request.targetObjects], true)
-    .find((candidate) => isVisibleInHierarchy(candidate.object) && candidate.face != null);
+    .find((candidate) => (
+      candidate.face != null
+      && isVisibleInHierarchy(candidate.object)
+      && hasVisibleEffectiveMaterial(candidate.object, candidate.face.materialIndex)
+    ));
 
   if (intersection === undefined || intersection.face == null) return undefined;
 
-  const normal = intersection.face.normal.clone().transformDirection(intersection.object.matrixWorld);
+  const normalMatrix = new Matrix3().getNormalMatrix(intersection.object.matrixWorld);
+  const normal = intersection.face.normal.clone().applyNormalMatrix(normalMatrix);
   const point = intersection.point.clone();
   const solidPoint = point.clone().addScaledVector(normal, -BLOCK_FACE_NUDGE);
 
@@ -70,4 +75,16 @@ function isVisibleInHierarchy(object: Object3D): boolean {
     current = current.parent;
   }
   return true;
+}
+
+function hasVisibleEffectiveMaterial(object: Object3D, materialIndex: number): boolean {
+  const material = (object as Object3D & { material?: Material | Material[] }).material;
+  if (material === undefined) return true;
+
+  if (Array.isArray(material)) {
+    const effectiveMaterial = material[materialIndex];
+    return effectiveMaterial !== undefined && effectiveMaterial.visible;
+  }
+
+  return material.visible;
 }
