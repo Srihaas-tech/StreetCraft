@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "streetcraft",
+  "version": "${version}",
+  "name": "StreetCraft",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "com.streetcraft.StreetCraftMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.10",
+    "minecraft": "~1.21.1",
+    "java": ">=21"
+  }
+}
