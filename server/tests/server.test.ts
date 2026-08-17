@@ -24,7 +24,7 @@ afterEach(async () => {
 
 describe('StreetCraft HTTP bootstrap', () => {
   it('serves a public health response', async () => {
-    const server = createStreetCraftServer({ passwordHash });
+    const server = createStreetCraftServer({ passwordHash, allowReducedArgon2CostForTests: true });
     servers.push(server);
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');

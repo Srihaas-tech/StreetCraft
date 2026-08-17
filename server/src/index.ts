@@ -20,7 +20,20 @@ export function createStreetCraftServer(options: StreetCraftServerOptions = {}):
     }
 
     if (request.method === 'POST' && request.url === '/api/auth/login') {
-      void authentication.handleLogin(request, response, request.socket.remoteAddress ?? 'unknown');
+      void authentication.handleLogin(request, response, request.socket.remoteAddress ?? 'unknown').catch(() => {
+        if (request.aborted || response.destroyed || response.writableEnded) {
+          return;
+        }
+        try {
+          response.writeHead(500, {
+            'cache-control': 'no-store',
+            'content-type': 'application/json; charset=utf-8',
+          });
+          response.end(JSON.stringify({ error: 'authentication request failed' }));
+        } catch {
+          response.destroy();
+        }
+      });
       return;
     }
 

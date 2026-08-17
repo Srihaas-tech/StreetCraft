@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
+import { request as httpRequest } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { hash } from '@node-rs/argon2';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -35,7 +36,11 @@ interface RunningServer {
 }
 
 async function startServer(options: Parameters<typeof createStreetCraftServer>[0] = {}): Promise<RunningServer> {
-  const server = createStreetCraftServer({ passwordHash, ...options });
+  const server = createStreetCraftServer({
+    passwordHash,
+    allowReducedArgon2CostForTests: true,
+    ...options,
+  });
   servers.push(server);
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -119,6 +124,28 @@ describe('StreetCraft password authentication', () => {
     expect(server.authentication.sessionCount).toBe(0);
   });
 
+  it('bounds active sessions and evicts the oldest session', async () => {
+    const { baseUrl, server } = await startServer({ maxSessions: 2 });
+    const first = sessionCookie(await postJson(baseUrl, '/api/auth/login', { password: acceptedPassword }));
+    const second = sessionCookie(await postJson(baseUrl, '/api/auth/login', { password: acceptedPassword }));
+    const third = sessionCookie(await postJson(baseUrl, '/api/auth/login', { password: acceptedPassword }));
+
+    expect(server.authentication.sessionCount).toBe(2);
+    expect(server.authentication.getAuthenticatedSession(first)).toBeNull();
+    expect(server.authentication.getAuthenticatedSession(second)).not.toBeNull();
+    expect(server.authentication.getAuthenticatedSession(third)).not.toBeNull();
+  });
+
+  it('rejects duplicate and malformed session cookie fields', async () => {
+    const { baseUrl, server } = await startServer();
+    const cookie = sessionCookie(await postJson(baseUrl, '/api/auth/login', { password: acceptedPassword }));
+    const cookieName = cookie.split('=', 1)[0]!;
+
+    expect(server.authentication.getAuthenticatedSession(`${cookie}; ${cookie}`)).toBeNull();
+    expect(server.authentication.getAuthenticatedSession(`${cookieName}; ${cookie}`)).toBeNull();
+    expect(server.authentication.getAuthenticatedSession(cookie)).not.toBeNull();
+  });
+
   it('rate limits the direct remote address before further login attempts', async () => {
     let now = Date.UTC(2026, 7, 17, 12);
     const { baseUrl } = await startServer({
@@ -153,6 +180,48 @@ describe('StreetCraft password authentication', () => {
     expect((await postJson(baseUrl, '/api/auth/login', { password: rejectedPassword })).status).toBe(401);
     expect((await postJson(baseUrl, '/api/auth/login', { password: rejectedPassword })).status).toBe(401);
     expect((await postJson(baseUrl, '/api/auth/login', { password: acceptedPassword })).status).toBe(429);
+  });
+
+  it('atomically limits overlapping password verifications', async () => {
+    let releaseVerifications!: () => void;
+    const verificationGate = new Promise<void>((resolve) => {
+      releaseVerifications = resolve;
+    });
+    let startedVerifications = 0;
+    let markReservationsFilled!: () => void;
+    const reservationsFilled = new Promise<void>((resolve) => {
+      markReservationsFilled = resolve;
+    });
+    const { baseUrl } = await startServer({
+      rateLimit: { maxFailures: 2, windowMs: TEST_SESSION_DURATION_MS, maxTrackedKeys: 100 },
+      passwordVerifierForTests: async () => {
+        startedVerifications += 1;
+        if (startedVerifications === 2) {
+          markReservationsFilled();
+        }
+        await verificationGate;
+        return false;
+      },
+    });
+
+    const first = postJson(baseUrl, '/api/auth/login', { password: rejectedPassword });
+    const second = postJson(baseUrl, '/api/auth/login', { password: rejectedPassword });
+    const verifierIsBlocked = await Promise.race([
+      reservationsFilled.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 100)),
+    ]);
+    expect(verifierIsBlocked).toBe(true);
+
+    const overlapping = postJson(baseUrl, '/api/auth/login', { password: rejectedPassword });
+    const overlappingBeforeRelease = await Promise.race([
+      overlapping,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
+    ]);
+    releaseVerifications();
+    const completed = await Promise.all([first, second, overlapping]);
+
+    expect(overlappingBeforeRelease?.status).toBe(429);
+    expect(completed.map((response) => response.status)).toEqual([401, 401, 429]);
   });
 
   it('invalidates the presented session and clears its cookie idempotently', async () => {
@@ -204,6 +273,79 @@ describe('StreetCraft password authentication', () => {
     expect(oversized.status).toBe(413);
   });
 
+  it('keeps the server healthy when a login upload is aborted', async () => {
+    const { baseUrl, server } = await startServer();
+    let markReceived!: () => void;
+    const received = new Promise<void>((resolve) => {
+      markReceived = resolve;
+    });
+    const aborted = new Promise<void>((resolve) => {
+      server.once('request', (request) => {
+        request.once('aborted', resolve);
+        markReceived();
+      });
+    });
+    const unhandledReasons: unknown[] = [];
+    const recordUnhandled = (reason: unknown): void => {
+      unhandledReasons.push(reason);
+    };
+    process.prependListener('unhandledRejection', recordUnhandled);
+
+    try {
+      const request = httpRequest(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'transfer-encoding': 'chunked',
+        },
+      });
+      request.on('error', () => undefined);
+      request.write(randomBytes(32));
+      await received;
+      request.destroy();
+      await aborted;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      const health = await fetch(`${baseUrl}/health`);
+
+      expect(health.status).toBe(200);
+      expect(unhandledReasons.length).toBe(0);
+    } finally {
+      process.removeListener('unhandledRejection', recordUnhandled);
+    }
+  });
+
+  it('rejects an oversized streaming login body before upload EOF', async () => {
+    const { baseUrl } = await startServer({ maxLoginBodyBytes: 64 });
+    const request = httpRequest(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'transfer-encoding': 'chunked',
+      },
+    });
+    request.on('error', () => undefined);
+    const responsePromise = once(request, 'response').then(([response]) => response);
+    request.write(randomBytes(65));
+
+    const received = await Promise.race([
+      responsePromise.then((response) => ({ response })),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 500)),
+    ]);
+
+    if (received === null) {
+      request.destroy();
+    }
+    expect(received).not.toBeNull();
+    const response = received!.response as import('node:http').IncomingMessage;
+    expect(response.statusCode).toBe(413);
+    response.resume();
+    await once(response, 'end');
+
+    const health = await fetch(`${baseUrl}/health`);
+    expect(health.status).toBe(200);
+  }, 2_000);
+
   it('adds Secure to auth cookies when configured', async () => {
     const { baseUrl } = await startServer({ secureCookies: true });
 
@@ -254,6 +396,42 @@ describe('StreetCraft password authentication', () => {
     expect(thrown).toBeInstanceOf(Error);
     expect((thrown as Error).message).toBe('STREETCRAFT_PASSWORD_HASH must contain a valid Argon2id PHC hash');
     expect((thrown as Error).message).not.toContain(malformed);
+  });
+
+  it('rejects reduced-cost password hashes unless the constructor explicitly enables test cost', () => {
+    expect(() => createStreetCraftServer({ passwordHash })).toThrow(
+      'STREETCRAFT_PASSWORD_HASH must contain a valid Argon2id PHC hash',
+    );
+
+    expect(() => createStreetCraftServer({
+      passwordHash,
+      allowReducedArgon2CostForTests: true,
+    })).not.toThrow();
+  });
+
+  it('rejects legacy Argon2 versions even when test cost is enabled', async () => {
+    const legacyHash = await hash(randomBytes(24).toString('base64url'), {
+      memoryCost: 19_456,
+      timeCost: 2,
+      parallelism: 1,
+      version: 0,
+    });
+    let thrown: unknown;
+
+    try {
+      createStreetCraftServer({
+        passwordHash: legacyHash,
+        allowReducedArgon2CostForTests: true,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe(
+      'STREETCRAFT_PASSWORD_HASH must contain a valid Argon2id PHC hash',
+    );
+    expect((thrown as Error).message).not.toContain(legacyHash);
   });
 });
 

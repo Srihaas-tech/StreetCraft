@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
+import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { hash } from '@node-rs/argon2';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -10,7 +11,7 @@ import { createSessionStore } from '../src/auth/session-store';
 let acceptedPassword: string;
 let rejectedPassword: string;
 let passwordHash: string;
-const servers: StreetCraftServer[] = [];
+const servers: Server[] = [];
 
 beforeAll(async () => {
   acceptedPassword = randomBytes(24).toString('base64url');
@@ -29,12 +30,34 @@ afterEach(async () => {
 });
 
 async function startServer(now: () => number): Promise<{ baseUrl: string; server: StreetCraftServer }> {
-  const server = createStreetCraftServer({ passwordHash, now });
+  const server = createStreetCraftServer({ passwordHash, now, allowReducedArgon2CostForTests: true });
   servers.push(server);
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const { port } = server.address() as AddressInfo;
   return { baseUrl: `http://127.0.0.1:${port}`, server };
+}
+
+async function startMalformedResponseServer(): Promise<{ baseUrl: string; server: Server }> {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(randomBytes(24).toString('base64url'));
+  });
+  servers.push(server);
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const { port } = server.address() as AddressInfo;
+  return { baseUrl: `http://127.0.0.1:${port}`, server };
+}
+
+async function closeTrackedServer(server: Server): Promise<void> {
+  const index = servers.indexOf(server);
+  if (index !== -1) {
+    servers.splice(index, 1);
+  }
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
 }
 
 function createRealBrowserFetch(baseUrl: string): typeof fetch {
@@ -65,7 +88,7 @@ describe('browser auth client and in-memory session state', () => {
     const now = Date.UTC(2026, 7, 17, 12);
     const { baseUrl } = await startServer(() => now);
     const store = createSessionStore(() => now);
-    const client = createAuthClient({ store, fetch: createRealBrowserFetch(baseUrl) });
+    const client = createAuthClient({ store, fetch: createRealBrowserFetch(baseUrl), now: () => now });
 
     const session = await client.login(acceptedPassword);
 
@@ -78,7 +101,7 @@ describe('browser auth client and in-memory session state', () => {
     const now = Date.UTC(2026, 7, 17, 12);
     const { baseUrl } = await startServer(() => now);
     const store = createSessionStore(() => now);
-    const client = createAuthClient({ store, fetch: createRealBrowserFetch(baseUrl) });
+    const client = createAuthClient({ store, fetch: createRealBrowserFetch(baseUrl), now: () => now });
 
     let thrown: unknown;
     try {
@@ -94,11 +117,67 @@ describe('browser auth client and in-memory session state', () => {
     expect(store.get()).toEqual({ authenticated: false, expiresAt: null });
   });
 
+  it('normalizes a real network failure to a typed request error', async () => {
+    const now = Date.UTC(2026, 7, 17, 12);
+    const { baseUrl, server } = await startServer(() => now);
+    await closeTrackedServer(server);
+    const store = createSessionStore(() => now);
+    const client = createAuthClient({ store, fetch: createRealBrowserFetch(baseUrl), now: () => now });
+
+    let thrown: unknown;
+    try {
+      await client.login(rejectedPassword);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AuthRequestError);
+    expect((thrown as AuthRequestError).status).toBe(0);
+    expect((thrown as AuthRequestError).code).toBe('request-failed');
+  });
+
+  it('normalizes a malformed success response to a typed response error', async () => {
+    const now = Date.UTC(2026, 7, 17, 12);
+    const { baseUrl } = await startMalformedResponseServer();
+    const store = createSessionStore(() => now);
+    const client = createAuthClient({ store, fetch: createRealBrowserFetch(baseUrl), now: () => now });
+
+    let thrown: unknown;
+    try {
+      await client.login(rejectedPassword);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AuthRequestError);
+    expect((thrown as AuthRequestError).code).toBe('invalid-response');
+    expect(store.get()).toEqual({ authenticated: false, expiresAt: null });
+  });
+
+  it('rejects a successful login response that is already expired for the client', async () => {
+    const serverNow = Date.UTC(2026, 7, 17, 12);
+    const clientNow = serverNow + 15 * 60 * 1_000;
+    const { baseUrl } = await startServer(() => serverNow);
+    const store = createSessionStore(() => clientNow);
+    const client = createAuthClient({ store, fetch: createRealBrowserFetch(baseUrl), now: () => clientNow });
+
+    let thrown: unknown;
+    try {
+      await client.login(acceptedPassword);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AuthRequestError);
+    expect((thrown as AuthRequestError).code).toBe('invalid-response');
+    expect(store.get()).toEqual({ authenticated: false, expiresAt: null });
+  });
+
   it('clears public session state and the server session on logout', async () => {
     const now = Date.UTC(2026, 7, 17, 12);
     const { baseUrl, server } = await startServer(() => now);
     const store = createSessionStore(() => now);
-    const client = createAuthClient({ store, fetch: createRealBrowserFetch(baseUrl) });
+    const client = createAuthClient({ store, fetch: createRealBrowserFetch(baseUrl), now: () => now });
     await client.login(acceptedPassword);
     expect(server.authentication.sessionCount).toBe(1);
 

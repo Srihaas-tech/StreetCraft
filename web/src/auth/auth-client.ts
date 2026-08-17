@@ -19,14 +19,23 @@ export interface AuthClient {
 export interface AuthClientOptions {
   store: SessionStore;
   fetch?: typeof fetch;
+  now?: () => number;
 }
 
 export function createAuthClient(options: AuthClientOptions): AuthClient {
   const fetchRequest = options.fetch ?? globalThis.fetch.bind(globalThis);
+  const now = options.now ?? Date.now;
+  const send = async (input: string, init: RequestInit): Promise<Response> => {
+    try {
+      return await fetchRequest(input, init);
+    } catch {
+      throw new AuthRequestError('Authentication request failed', 0, 'request-failed');
+    }
+  };
 
   return {
     login: async (password) => {
-      const response = await fetchRequest('/api/auth/login', {
+      const response = await send('/api/auth/login', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
@@ -36,20 +45,20 @@ export function createAuthClient(options: AuthClientOptions): AuthClient {
         throw responseError(response.status);
       }
 
-      const session = await readAuthenticatedSession(response);
+      const session = await readAuthenticatedSession(response, now);
       options.store.set(session);
       return session;
     },
     logout: async () => {
       try {
-        const response = await fetchRequest('/api/auth/logout', {
+        const response = await send('/api/auth/logout', {
           method: 'POST',
           credentials: 'same-origin',
         });
         if (!response.ok) {
           throw responseError(response.status);
         }
-        const body = await response.json() as unknown;
+        const body = await readJson(response);
         if (!isAnonymousResponse(body)) {
           throw new AuthRequestError('Invalid authentication response', response.status, 'invalid-response');
         }
@@ -60,14 +69,18 @@ export function createAuthClient(options: AuthClientOptions): AuthClient {
   };
 }
 
-async function readAuthenticatedSession(response: Response): Promise<AuthenticatedSessionState> {
-  const body = await response.json() as unknown;
+async function readAuthenticatedSession(
+  response: Response,
+  now: () => number,
+): Promise<AuthenticatedSessionState> {
+  const body = await readJson(response);
   if (
     typeof body !== 'object'
     || body === null
     || (body as { authenticated?: unknown }).authenticated !== true
     || typeof (body as { expiresAt?: unknown }).expiresAt !== 'number'
     || !Number.isFinite((body as { expiresAt: number }).expiresAt)
+    || (body as { expiresAt: number }).expiresAt <= now()
   ) {
     throw new AuthRequestError('Invalid authentication response', response.status, 'invalid-response');
   }
@@ -76,6 +89,14 @@ async function readAuthenticatedSession(response: Response): Promise<Authenticat
     authenticated: true,
     expiresAt: (body as { expiresAt: number }).expiresAt,
   };
+}
+
+async function readJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json() as unknown;
+  } catch {
+    throw new AuthRequestError('Invalid authentication response', response.status, 'invalid-response');
+  }
 }
 
 function isAnonymousResponse(body: unknown): boolean {

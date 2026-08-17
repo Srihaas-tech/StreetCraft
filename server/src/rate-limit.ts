@@ -9,8 +9,18 @@ export interface RateLimitDecision {
   retryAfterSeconds: number;
 }
 
+export type RateLimitReservationResult =
+  | { limited: true; retryAfterSeconds: number }
+  | { limited: false; reservation: RateLimitReservation };
+
+export interface RateLimitReservation {
+  readonly key: string;
+  readonly id: symbol;
+}
+
 interface FailureWindow {
   failures: number;
+  reservations: Set<symbol>;
   resetsAt: number;
 }
 
@@ -36,7 +46,7 @@ export class LoginRateLimiter {
   check(key: string): RateLimitDecision {
     this.pruneExpired();
     const window = this.failures.get(key);
-    if (window === undefined || window.failures < this.maxFailures) {
+    if (window === undefined || window.failures + window.reservations.size < this.maxFailures) {
       return { limited: false, retryAfterSeconds: 0 };
     }
 
@@ -44,6 +54,45 @@ export class LoginRateLimiter {
       limited: true,
       retryAfterSeconds: Math.max(1, Math.ceil((window.resetsAt - this.now()) / 1_000)),
     };
+  }
+
+  reserve(key: string): RateLimitReservationResult {
+    const decision = this.check(key);
+    if (decision.limited) {
+      return { limited: true, retryAfterSeconds: decision.retryAfterSeconds };
+    }
+
+    let window = this.failures.get(key);
+    if (window === undefined) {
+      if (!this.makeRoomForNewKey()) {
+        return { limited: true, retryAfterSeconds: 1 };
+      }
+      window = this.newWindow();
+      this.failures.set(key, window);
+    }
+
+    const reservation: RateLimitReservation = { key, id: Symbol('login-attempt') };
+    window.reservations.add(reservation.id);
+    return { limited: false, reservation };
+  }
+
+  completeFailure(reservation: RateLimitReservation): void {
+    const window = this.failures.get(reservation.key);
+    if (window === undefined || !window.reservations.delete(reservation.id)) {
+      return;
+    }
+    window.failures += 1;
+  }
+
+  completeSuccess(reservation: RateLimitReservation): void {
+    const window = this.failures.get(reservation.key);
+    if (window === undefined || !window.reservations.delete(reservation.id)) {
+      return;
+    }
+    window.failures = 0;
+    if (window.reservations.size === 0) {
+      this.failures.delete(reservation.key);
+    }
   }
 
   recordFailure(key: string): void {
@@ -54,14 +103,13 @@ export class LoginRateLimiter {
       return;
     }
 
-    if (this.failures.size >= this.maxTrackedKeys) {
-      const oldestKey = this.failures.keys().next().value as string | undefined;
-      if (oldestKey !== undefined) {
-        this.failures.delete(oldestKey);
-      }
+    if (!this.makeRoomForNewKey()) {
+      return;
     }
 
-    this.failures.set(key, { failures: 1, resetsAt: this.now() + this.windowMs });
+    const window = this.newWindow();
+    window.failures = 1;
+    this.failures.set(key, window);
   }
 
   clear(key: string): void {
@@ -77,9 +125,35 @@ export class LoginRateLimiter {
     const now = this.now();
     for (const [key, window] of this.failures) {
       if (window.resetsAt <= now) {
-        this.failures.delete(key);
+        if (window.reservations.size === 0) {
+          this.failures.delete(key);
+        } else {
+          window.failures = 0;
+          window.resetsAt = now + this.windowMs;
+        }
       }
     }
+  }
+
+  private makeRoomForNewKey(): boolean {
+    if (this.failures.size < this.maxTrackedKeys) {
+      return true;
+    }
+    for (const [key, window] of this.failures) {
+      if (window.reservations.size === 0) {
+        this.failures.delete(key);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private newWindow(): FailureWindow {
+    return {
+      failures: 0,
+      reservations: new Set(),
+      resetsAt: this.now() + this.windowMs,
+    };
   }
 }
 
