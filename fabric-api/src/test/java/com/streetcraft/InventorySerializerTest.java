@@ -99,6 +99,21 @@ class InventorySerializerTest {
     }
 
     @Test
+    void dropsAnUnpairedSurrogateCreatedAtTheBoundedTextBoundary() {
+        String boundaryName = "\u0001".repeat(511) + "\uD83D\uDE80";
+        ItemStack stack = new ItemStack(Items.DIAMOND);
+        stack.set(DataComponentTypes.CUSTOM_NAME, Text.literal(boundaryName));
+        SimpleInventory inventory = new SimpleInventory(27);
+        inventory.setStack(0, stack);
+
+        String displayName = serializer.serialize(InventorySerializer.ContainerType.CHEST, inventory)
+                .items().getFirst().displayName();
+
+        assertEquals("", displayName);
+        assertTrue(displayName.chars().noneMatch(character -> Character.isSurrogate((char) character)));
+    }
+
+    @Test
     void exposesOnlyAllowlistedScalarsWhenAStackContainsArbitraryComponents() {
         ItemStack stack = new ItemStack(Items.SHULKER_BOX, 1);
         NbtCompound arbitraryData = new NbtCompound();

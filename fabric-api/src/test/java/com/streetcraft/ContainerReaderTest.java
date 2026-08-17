@@ -192,8 +192,7 @@ class ContainerReaderTest {
                 .read("minecraft:overworld", TARGET.getX(), TARGET.getY(), TARGET.getZ());
 
         assertInstanceOf(ContainerReader.NotFound.class, result);
-        assertEquals(1, world.loadedPositionChecks);
-        assertEquals(0, world.blockStateReads);
+        assertEquals(1, world.loadedBlockStateReads);
         assertEquals(0, world.blockEntityInventoryReads);
     }
 
@@ -216,8 +215,7 @@ class ContainerReaderTest {
                 .read("minecraft:overworld", chunkBoundary.getX(), chunkBoundary.getY(), chunkBoundary.getZ());
 
         assertInstanceOf(ContainerReader.NotFound.class, result);
-        assertEquals(2, world.loadedPositionChecks);
-        assertEquals(1, world.blockStateReads);
+        assertEquals(2, world.loadedBlockStateReads);
         assertEquals(0, world.chestInventoryReads);
     }
 
@@ -293,8 +291,7 @@ class ContainerReaderTest {
         private int worldLookups;
         private int chestInventoryReads;
         private int blockEntityInventoryReads;
-        private int loadedPositionChecks;
-        private int blockStateReads;
+        private int loadedBlockStateReads;
         private Identifier requestedDimension;
         private BlockPos requestedPosition;
         private BlockPos unloadedPosition;
@@ -334,20 +331,17 @@ class ContainerReaderTest {
         }
 
         @Override
-        public BlockState getBlockState(BlockPos requestedPosition) {
-            blockStateReads++;
+        public Optional<BlockState> getLoadedBlockState(BlockPos requestedPosition) {
+            loadedBlockStateReads++;
             this.requestedPosition = requestedPosition;
-            return position.equals(requestedPosition) ? state : Blocks.AIR.getDefaultState();
+            if (requestedPosition.equals(unloadedPosition)) {
+                return Optional.empty();
+            }
+            return Optional.of(position.equals(requestedPosition) ? state : Blocks.AIR.getDefaultState());
         }
 
         @Override
-        public boolean isPositionLoaded(BlockPos requestedPosition) {
-            loadedPositionChecks++;
-            return !requestedPosition.equals(unloadedPosition);
-        }
-
-        @Override
-        public Optional<Inventory> getChestInventory(BlockPos requestedPosition) {
+        public Optional<Inventory> getChestInventory(BlockPos requestedPosition, BlockState requestedState) {
             chestInventoryReads++;
             this.requestedPosition = requestedPosition;
             return position.equals(requestedPosition) ? Optional.ofNullable(inventory) : Optional.empty();

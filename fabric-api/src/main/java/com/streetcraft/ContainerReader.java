@@ -5,6 +5,8 @@ import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.ChestBlock;
 import net.minecraft.block.entity.BarrelBlockEntity;
+import net.minecraft.block.entity.BlockEntity;
+import net.minecraft.block.entity.ChestBlockEntity;
 import net.minecraft.block.entity.ShulkerBoxBlockEntity;
 import net.minecraft.block.enums.ChestType;
 import net.minecraft.inventory.Inventory;
@@ -16,6 +18,7 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
+import net.minecraft.world.chunk.WorldChunk;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -79,10 +82,11 @@ public final class ContainerReader {
 
         WorldView world = maybeWorld.get();
         BlockPos position = new BlockPos(x, y, z);
-        if (!world.isPositionLoaded(position)) {
+        Optional<BlockState> maybeState = world.getLoadedBlockState(position);
+        if (maybeState.isEmpty()) {
             return new NotFound();
         }
-        BlockState state = world.getBlockState(position);
+        BlockState state = maybeState.get();
         Block block = state.getBlock();
 
         if (state.isAir()) {
@@ -91,10 +95,10 @@ public final class ContainerReader {
 
         if (block == Blocks.CHEST || block == Blocks.TRAPPED_CHEST) {
             if (state.get(ChestBlock.CHEST_TYPE) != ChestType.SINGLE
-                    && !world.isPositionLoaded(position.offset(ChestBlock.getFacing(state)))) {
+                    && world.getLoadedBlockState(position.offset(ChestBlock.getFacing(state))).isEmpty()) {
                 return new NotFound();
             }
-            Optional<Inventory> inventory = world.getChestInventory(position);
+            Optional<Inventory> inventory = world.getChestInventory(position, state);
             if (inventory.isEmpty()) {
                 return new NotFound();
             }
@@ -148,11 +152,9 @@ public final class ContainerReader {
     }
 
     interface WorldView {
-        boolean isPositionLoaded(BlockPos position);
+        Optional<BlockState> getLoadedBlockState(BlockPos position);
 
-        BlockState getBlockState(BlockPos position);
-
-        Optional<Inventory> getChestInventory(BlockPos position);
+        Optional<Inventory> getChestInventory(BlockPos position, BlockState state);
 
         Optional<Inventory> getBarrelInventory(BlockPos position);
 
@@ -201,38 +203,51 @@ public final class ContainerReader {
 
     private record MinecraftWorldView(ServerWorld world) implements WorldView {
         @Override
-        public boolean isPositionLoaded(BlockPos position) {
-            int chunkX = Math.floorDiv(position.getX(), 16);
-            int chunkZ = Math.floorDiv(position.getZ(), 16);
-            return world.getChunkManager().isChunkLoaded(chunkX, chunkZ);
+        public Optional<BlockState> getLoadedBlockState(BlockPos position) {
+            return getLoadedChunk(position).map(chunk -> chunk.getBlockState(position));
         }
 
         @Override
-        public BlockState getBlockState(BlockPos position) {
-            return world.getBlockState(position);
-        }
-
-        @Override
-        public Optional<Inventory> getChestInventory(BlockPos position) {
-            BlockState state = world.getBlockState(position);
+        public Optional<Inventory> getChestInventory(BlockPos position, BlockState state) {
             if (!(state.getBlock() instanceof ChestBlock chestBlock)) {
                 return Optional.empty();
+            }
+            if (!(getLoadedBlockEntity(position) instanceof ChestBlockEntity)) {
+                return Optional.empty();
+            }
+            if (state.get(ChestBlock.CHEST_TYPE) != ChestType.SINGLE) {
+                BlockPos adjacentPosition = position.offset(ChestBlock.getFacing(state));
+                if (!(getLoadedBlockEntity(adjacentPosition) instanceof ChestBlockEntity)) {
+                    return Optional.empty();
+                }
             }
             return Optional.ofNullable(ChestBlock.getInventory(chestBlock, state, world, position, true));
         }
 
         @Override
         public Optional<Inventory> getBarrelInventory(BlockPos position) {
-            return world.getBlockEntity(position) instanceof BarrelBlockEntity barrel
+            return getLoadedBlockEntity(position) instanceof BarrelBlockEntity barrel
                     ? Optional.of(barrel)
                     : Optional.empty();
         }
 
         @Override
         public Optional<Inventory> getShulkerInventory(BlockPos position) {
-            return world.getBlockEntity(position) instanceof ShulkerBoxBlockEntity shulker
+            return getLoadedBlockEntity(position) instanceof ShulkerBoxBlockEntity shulker
                     ? Optional.of(shulker)
                     : Optional.empty();
+        }
+
+        private Optional<WorldChunk> getLoadedChunk(BlockPos position) {
+            int chunkX = Math.floorDiv(position.getX(), 16);
+            int chunkZ = Math.floorDiv(position.getZ(), 16);
+            return Optional.ofNullable(world.getChunkManager().getWorldChunk(chunkX, chunkZ));
+        }
+
+        private BlockEntity getLoadedBlockEntity(BlockPos position) {
+            return getLoadedChunk(position)
+                    .map(chunk -> chunk.getBlockEntity(position))
+                    .orElse(null);
         }
     }
 }

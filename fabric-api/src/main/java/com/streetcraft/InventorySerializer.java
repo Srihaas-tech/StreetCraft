@@ -52,7 +52,8 @@ public final class InventorySerializer {
         StringBuilder sanitized = new StringBuilder(Math.min(input.length(), MAX_DISPLAY_NAME_CODE_POINTS));
         input.codePoints()
                 .filter(codePoint -> !Character.isISOControl(codePoint)
-                        && Character.getType(codePoint) != Character.FORMAT)
+                        && Character.getType(codePoint) != Character.FORMAT
+                        && (codePoint < Character.MIN_SURROGATE || codePoint > Character.MAX_SURROGATE))
                 .limit(MAX_DISPLAY_NAME_CODE_POINTS)
                 .forEach(sanitized::appendCodePoint);
         return sanitized.toString();
