@@ -127,6 +127,13 @@ public final class ContainerReader {
         return new Unsupported(Registries.BLOCK.getId(block).toString());
     }
 
+    static boolean isSupportedBlock(Block block) {
+        return block == Blocks.CHEST
+                || block == Blocks.TRAPPED_CHEST
+                || block == Blocks.BARREL
+                || VANILLA_SHULKER_BOXES.contains(block);
+    }
+
     private ReadResult readBlockEntityInventory(
             Block block,
             InventorySerializer.ContainerType type,
