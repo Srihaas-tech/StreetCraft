@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@node-rs/argon2": "^2.1.0",
     "three": "^0.168.0"
   },
   "devDependencies": {

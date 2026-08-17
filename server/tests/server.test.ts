@@ -1,9 +1,20 @@
+import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
-import { afterEach, describe, expect, it } from 'vitest';
+import { hash } from '@node-rs/argon2';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createStreetCraftServer } from '../src/index';
 
 const servers: ReturnType<typeof createStreetCraftServer>[] = [];
+let passwordHash: string;
+
+beforeAll(async () => {
+  passwordHash = await hash(randomBytes(24).toString('base64url'), {
+    memoryCost: 4_096,
+    timeCost: 1,
+    parallelism: 1,
+  });
+});
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve, reject) => {
@@ -13,7 +24,7 @@ afterEach(async () => {
 
 describe('StreetCraft HTTP bootstrap', () => {
   it('serves a public health response', async () => {
-    const server = createStreetCraftServer();
+    const server = createStreetCraftServer({ passwordHash });
     servers.push(server);
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
