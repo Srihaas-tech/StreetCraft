@@ -346,7 +346,7 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
   }
 
   let animationId = requestAnimationFrame(animate);
-  let needsSpawnSnap = true;
+  let spawnSnapped = false;
 
   function animate() {
     animationId = requestAnimationFrame(animate);
@@ -354,16 +354,14 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
     if (activeTileManager !== null) {
       activeTileManager.update(camera.position.x, camera.position.z);
     }
-    if (needsSpawnSnap && activeTileManager !== null) {
+    if (!spawnSnapped && activeTileManager !== null) {
       const surface = activeTileManager.getSurfaceHeight(camera.position.x, camera.position.z);
       if (surface !== undefined) {
         camera.position.y = surface + 3;
-        needsSpawnSnap = false;
+        spawnSnapped = true;
       }
     }
-    if (!needsSpawnSnap) {
-      cameraController.update(delta);
-    }
+    cameraController.update(delta);
     renderer.render(scene, camera);
   }
 
