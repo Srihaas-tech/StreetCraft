@@ -88,7 +88,7 @@ export class CameraController {
 
   update(deltaSeconds: number): void {
     const mouseDelta = this.input.consumeMouseDelta();
-    this.yawRadians += mouseDelta.x * this.mouseSensitivity;
+    this.yawRadians -= mouseDelta.x * this.mouseSensitivity;
     this.pitchRadians = clamp(
       this.pitchRadians - (mouseDelta.y * this.mouseSensitivity),
       -this.pitchLimit,

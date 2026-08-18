@@ -351,6 +351,9 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
   function animate() {
     animationId = requestAnimationFrame(animate);
     const delta = clock.getDelta();
+    if (activeTileManager !== null) {
+      activeTileManager.update(camera.position.x, camera.position.z);
+    }
     if (needsSpawnSnap && activeTileManager !== null) {
       const surface = activeTileManager.getSurfaceHeight(camera.position.x, camera.position.z);
       if (surface !== undefined) {
@@ -358,9 +361,8 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
         needsSpawnSnap = false;
       }
     }
-    cameraController.update(delta);
-    if (activeTileManager !== null) {
-      activeTileManager.update(camera.position.x, camera.position.z);
+    if (!needsSpawnSnap) {
+      cameraController.update(delta);
     }
     renderer.render(scene, camera);
   }
