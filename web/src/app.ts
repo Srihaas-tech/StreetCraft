@@ -379,20 +379,17 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
 
     frameCount++;
     if (frameCount % 10 === 0) {
-      const fwd = Number(input.isPressed('KeyW')) - Number(input.isPressed('KeyS'));
-      const rgt = Number(input.isPressed('KeyD')) - Number(input.isPressed('KeyA'));
       const bx = Math.floor(camera.position.x);
       const bz = Math.floor(camera.position.z);
-      const surfaceAt = activeTileManager?.getSurfaceHeight(camera.position.x, camera.position.z);
-      const solidBelow = activeTileManager?.isSolidBlock(bx, Math.floor(camera.position.y) - 1, bz);
+      const surf = activeTileManager?.getSurfaceHeight(camera.position.x, camera.position.z);
+      const aabbBot = camera.position.y - 1.62;
+      const footBlock = activeTileManager?.isSolidBlock(bx, Math.floor(aabbBot), bz);
       debugHud.textContent =
-        `pos: ${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)} | ` +
-        `keys: W=${input.isPressed('KeyW')} A=${input.isPressed('KeyA')} S=${input.isPressed('KeyS')} D=${input.isPressed('KeyD')} | ` +
-        `fwd=${fwd} rgt=${rgt} yaw=${cameraController.yaw.toFixed(2)} | ` +
-        `vel: ${cameraController.velocity.x.toFixed(2)}, ${cameraController.velocity.y.toFixed(2)}, ${cameraController.velocity.z.toFixed(2)} | ` +
-        `grounded: ${cameraController.grounded} | ` +
-        `surface@here=${surfaceAt} solidBelow=${solidBelow} | ` +
-        `delta: ${delta.toFixed(4)}`;
+        `Y=${camera.position.y.toFixed(2)} vel=${cameraController.velocity.y.toFixed(2)} ` +
+        `gnd=${cameraController.grounded} ptr=${pointerLocked} ` +
+        `surf=${surf} foot=${footBlock} ` +
+        `keys=${input.isPressed('KeyW')}${input.isPressed('KeyA')}${input.isPressed('KeyS')}${input.isPressed('KeyD')} ` +
+        `dt=${delta.toFixed(4)}`;
     }
   }
 
