@@ -346,10 +346,18 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
   }
 
   let animationId = requestAnimationFrame(animate);
+  let needsSpawnSnap = true;
 
   function animate() {
     animationId = requestAnimationFrame(animate);
     const delta = clock.getDelta();
+    if (needsSpawnSnap && activeTileManager !== null) {
+      const surface = activeTileManager.getSurfaceHeight(camera.position.x, camera.position.z);
+      if (surface !== undefined) {
+        camera.position.y = surface + 3;
+        needsSpawnSnap = false;
+      }
+    }
     cameraController.update(delta);
     if (activeTileManager !== null) {
       activeTileManager.update(camera.position.x, camera.position.z);
@@ -467,11 +475,11 @@ async function loadTerrain(
 
     const startPos = mapSettings.startPos;
     if (Array.isArray(startPos) && startPos.length >= 2) {
-      camera.position.set(startPos[0] ?? 0, 80, startPos[1] ?? 0);
+      camera.position.set(startPos[0] ?? 0, 300, startPos[1] ?? 0);
     } else {
       camera.position.set(
         tileSettings.translate.x + tileSettings.tileSize.x * 2,
-        80,
+        300,
         tileSettings.translate.z + tileSettings.tileSize.z * 2,
       );
     }

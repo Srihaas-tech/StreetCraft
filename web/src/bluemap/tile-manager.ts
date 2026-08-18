@@ -40,6 +40,12 @@ export class TileManager {
     return maxY !== undefined && y <= maxY;
   }
 
+  getSurfaceHeight(worldX: number, worldZ: number): number | undefined {
+    const bx = Math.floor(worldX);
+    const bz = Math.floor(worldZ);
+    return this.solidBlocks.get(`${bx},${bz}`);
+  }
+
   private buildCollisionData(mesh: Mesh): void {
     const geo = mesh.geometry;
     const posAttr = geo.getAttribute('position') as BufferAttribute | undefined;
