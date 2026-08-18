@@ -13,6 +13,8 @@ export interface TileManagerOptions {
 const DEFAULT_VIEW_DISTANCE = 256;
 const MAX_CONCURRENT_LOADS = 8;
 
+const THIN_THRESHOLD = 0.5;
+
 export class TileManager {
   private readonly loader: HiresTileLoader;
   private readonly scene: Scene;
@@ -21,7 +23,8 @@ export class TileManager {
   private readonly viewDistance: number;
   private readonly tiles = new Map<string, Mesh>();
   private readonly loading = new Set<string>();
-  private readonly solidBlocks = new Map<string, number>();
+  private readonly solidMinY = new Map<string, number>();
+  private readonly solidMaxY = new Map<string, number>();
   private centerTileX = Infinity;
   private centerTileZ = Infinity;
   private scheduledUpdate: ReturnType<typeof setTimeout> | null = null;
@@ -36,14 +39,22 @@ export class TileManager {
 
   isSolidBlock(x: number, y: number, z: number): boolean {
     const key = `${x},${z}`;
-    const maxY = this.solidBlocks.get(key);
-    return maxY !== undefined && y < maxY;
+    const maxY = this.solidMaxY.get(key);
+    const minY = this.solidMinY.get(key);
+    if (maxY === undefined || minY === undefined) return false;
+    if (maxY - minY < THIN_THRESHOLD) return false;
+    return y < Math.floor(maxY);
   }
 
   getSurfaceHeight(worldX: number, worldZ: number): number | undefined {
     const bx = Math.floor(worldX);
     const bz = Math.floor(worldZ);
-    return this.solidBlocks.get(`${bx},${bz}`);
+    const key = `${bx},${bz}`;
+    const maxY = this.solidMaxY.get(key);
+    const minY = this.solidMinY.get(key);
+    if (maxY === undefined || minY === undefined) return undefined;
+    if (maxY - minY < THIN_THRESHOLD) return undefined;
+    return Math.floor(maxY);
   }
 
   private buildCollisionData(mesh: Mesh): void {
@@ -71,12 +82,17 @@ export class TileManager {
       }
 
       const wx = Math.floor(posAttr.getX(i) * sx + px);
-      const wy = Math.floor(posAttr.getY(i));
       const wz = Math.floor(posAttr.getZ(i) * sz + pz);
+      const actualY = posAttr.getY(i);
       const key = `${wx},${wz}`;
-      const prev = this.solidBlocks.get(key);
-      if (prev === undefined || wy > prev) {
-        this.solidBlocks.set(key, wy);
+
+      const prevMax = this.solidMaxY.get(key);
+      if (prevMax === undefined || actualY > prevMax) {
+        this.solidMaxY.set(key, actualY);
+      }
+      const prevMin = this.solidMinY.get(key);
+      if (prevMin === undefined || actualY < prevMin) {
+        this.solidMinY.set(key, actualY);
       }
     }
   }
@@ -100,7 +116,8 @@ export class TileManager {
     }
 
     for (const key of columns) {
-      this.solidBlocks.delete(key);
+      this.solidMinY.delete(key);
+      this.solidMaxY.delete(key);
     }
   }
 
@@ -210,6 +227,7 @@ export class TileManager {
     }
     this.tiles.clear();
     this.loading.clear();
-    this.solidBlocks.clear();
+    this.solidMinY.clear();
+    this.solidMaxY.clear();
   }
 }
