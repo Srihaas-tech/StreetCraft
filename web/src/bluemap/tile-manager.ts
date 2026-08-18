@@ -21,8 +21,8 @@ export class TileManager {
   private readonly viewDistance: number;
   private readonly tiles = new Map<string, Mesh>();
   private readonly loading = new Set<string>();
-  private centerTileX = 0;
-  private centerTileZ = 0;
+  private centerTileX = Infinity;
+  private centerTileZ = Infinity;
   private scheduledUpdate: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: TileManagerOptions) {
@@ -55,7 +55,9 @@ export class TileManager {
     const halfTiles = Math.ceil(this.viewDistance / this.settings.tileSize.x);
 
     for (const [key, mesh] of this.tiles) {
-      const [tx, tz] = key.split(',').map(Number);
+      const parts = key.split(',');
+      const tx = Number(parts[0]);
+      const tz = Number(parts[1]);
       if (
         Math.abs(tx - this.centerTileX) > halfTiles ||
         Math.abs(tz - this.centerTileZ) > halfTiles
@@ -86,7 +88,9 @@ export class TileManager {
 
         const worldX = tx * this.settings.tileSize.x + this.settings.translate.x;
         const worldZ = tz * this.settings.tileSize.z + this.settings.translate.z;
-        const dist = Math.hypot(worldX - (this.centerTileX * this.settings.tileSize.x + this.settings.translate.x), worldZ - (this.centerTileZ * this.settings.tileSize.z + this.settings.translate.z));
+        const centerX = this.centerTileX * this.settings.tileSize.x + this.settings.translate.x;
+        const centerZ = this.centerTileZ * this.settings.tileSize.z + this.settings.translate.z;
+        const dist = Math.hypot(worldX - centerX, worldZ - centerZ);
         if (dist > this.viewDistance) continue;
 
         this.loading.add(key);

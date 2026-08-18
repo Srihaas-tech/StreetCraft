@@ -1,9 +1,7 @@
 import {
   Mesh,
-  BufferGeometry,
   ShaderMaterial,
   Material,
-  Float32BufferAttribute,
 } from 'three';
 import { parsePrbm, prbmToBufferGeometry } from './prbm-parser';
 
@@ -16,6 +14,7 @@ export interface HiresTileSettings {
 const HIRES_VERTEX_SHADER = `
 varying vec3 vColor;
 varying float vAo;
+attribute float ao;
 
 void main() {
   vColor = color;
@@ -37,7 +36,7 @@ export class HiresTileLoader {
   private readonly tileUrlBuilder: (tileX: number, tileZ: number) => string;
   private readonly settings: HiresTileSettings;
   private readonly materials: Material[];
-  private readonly sharedGeometry = new Map<string, BufferGeometry>();
+  private fallbackMaterial: Material | null = null;
 
   constructor(
     tileUrlBuilder: (tileX: number, tileZ: number) => string,
@@ -47,6 +46,18 @@ export class HiresTileLoader {
     this.tileUrlBuilder = tileUrlBuilder;
     this.settings = settings;
     this.materials = materials;
+  }
+
+  private getMaterial(): Material {
+    if (this.materials.length > 0) return this.materials[0]!;
+    if (this.fallbackMaterial === null) {
+      this.fallbackMaterial = new ShaderMaterial({
+        vertexShader: HIRES_VERTEX_SHADER,
+        fragmentShader: HIRES_FRAGMENT_SHADER,
+        vertexColors: true,
+      });
+    }
+    return this.fallbackMaterial;
   }
 
   async load(tileX: number, tileZ: number, cancelCheck?: () => boolean): Promise<Mesh | null> {
@@ -61,22 +72,15 @@ export class HiresTileLoader {
     if (data.attributes['position'] === undefined) return null;
 
     const geometry = prbmToBufferGeometry(data);
-    if (geometry.attributes.position.count === 0) {
+    const posAttr = geometry.attributes['position'];
+    if (posAttr === undefined || posAttr.count === 0) {
       geometry.dispose();
       return null;
     }
 
     geometry.computeBoundingSphere();
 
-    const material = this.materials.length > 0
-      ? this.materials[0]
-      : new ShaderMaterial({
-          vertexShader: HIRES_VERTEX_SHADER,
-          fragmentShader: HIRES_FRAGMENT_SHADER,
-          vertexColors: true,
-        });
-
-    const mesh = new Mesh(geometry, material);
+    const mesh = new Mesh(geometry, this.getMaterial()!);
     mesh.position.set(
       tileX * this.settings.tileSize.x + this.settings.translate.x,
       0,

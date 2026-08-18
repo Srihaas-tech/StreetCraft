@@ -413,7 +413,7 @@ async function loadTerrain(
       return;
     }
 
-    const mapId = maps[0];
+    const mapId = maps[0]!;
     const origin = streetCraftConfig.blueMapOrigin;
 
     const mapSettingsUrl = `${origin}/${mapDataRoot}/${mapId}/settings.json`;
@@ -435,30 +435,36 @@ async function loadTerrain(
       };
     };
 
+    const hires = mapSettings.hires;
+    const rawTileSize = Array.isArray(hires?.tileSize) ? hires!.tileSize : undefined;
+    const rawScale = Array.isArray(hires?.scale) ? hires!.scale : undefined;
+    const rawTranslate = Array.isArray(hires?.translate) ? hires!.translate : undefined;
+
     const tileSettings = {
       tileSize: {
-        x: Array.isArray(mapSettings.hires?.tileSize) ? mapSettings.hires!.tileSize![0] : 32,
-        z: Array.isArray(mapSettings.hires?.tileSize) ? mapSettings.hires!.tileSize![1] : 32,
+        x: rawTileSize?.[0] ?? 32,
+        z: rawTileSize?.[1] ?? 32,
       },
       scale: {
-        x: Array.isArray(mapSettings.hires?.scale) ? mapSettings.hires!.scale![0] : 1,
-        z: Array.isArray(mapSettings.hires?.scale) ? mapSettings.hires!.scale![1] : 1,
+        x: rawScale?.[0] ?? 1,
+        z: rawScale?.[1] ?? 1,
       },
       translate: {
-        x: Array.isArray(mapSettings.hires?.translate) ? mapSettings.hires!.translate![0] : 2,
-        z: Array.isArray(mapSettings.hires?.translate) ? mapSettings.hires!.translate![1] : 2,
+        x: rawTranslate?.[0] ?? 2,
+        z: rawTranslate?.[1] ?? 2,
       },
     };
 
     if (mapSettings.skyColor && mapSettings.skyColor.length >= 3) {
-      scene.background = new Color(mapSettings.skyColor[0], mapSettings.skyColor[1], mapSettings.skyColor[2]);
+      const sc = mapSettings.skyColor;
+      scene.background = new Color(sc[0] ?? 0, sc[1] ?? 0, sc[2] ?? 0);
     } else {
       scene.background = new Color(0x87CEEB);
     }
 
     const startPos = mapSettings.startPos;
     if (Array.isArray(startPos) && startPos.length >= 2) {
-      camera.position.set(startPos[0], 80, startPos[1]);
+      camera.position.set(startPos[0] ?? 0, 80, startPos[1] ?? 0);
     } else {
       camera.position.set(
         tileSettings.translate.x + tileSettings.tileSize.x * 2,
