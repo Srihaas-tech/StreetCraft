@@ -1,10 +1,11 @@
 import { createServer, type Server } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { Authentication, type AuthenticationOptions } from './auth';
+import { ApiProxy, type ApiProxyOptions, proxyRoute } from './proxy';
 
 export const STREETCRAFT_PORT = 8102;
 
-export interface StreetCraftServerOptions extends AuthenticationOptions {}
+export interface StreetCraftServerOptions extends AuthenticationOptions, ApiProxyOptions {}
 
 export type StreetCraftServer = Server & {
   readonly authentication: Authentication;
@@ -12,6 +13,7 @@ export type StreetCraftServer = Server & {
 
 export function createStreetCraftServer(options: StreetCraftServerOptions = {}): StreetCraftServer {
   const authentication = new Authentication(options);
+  const apiProxy = new ApiProxy(authentication, options);
   const server = createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/health') {
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
@@ -39,6 +41,12 @@ export function createStreetCraftServer(options: StreetCraftServerOptions = {}):
 
     if (request.method === 'POST' && request.url === '/api/auth/logout') {
       authentication.handleLogout(request, response);
+      return;
+    }
+
+    const route = proxyRoute(request.url);
+    if (route !== null) {
+      void apiProxy.handle(route, request, response);
       return;
     }
 
