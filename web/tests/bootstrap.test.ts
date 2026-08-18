@@ -9,7 +9,7 @@ beforeEach(() => {
 
 afterEach(() => {
   HTMLElement.prototype.requestPointerLock = originalRequestPointerLock;
-  document.querySelectorAll('.crosshair, .streetcraft-status, .streetcraft-click-hint, .streetcraft-block-info, .streetcraft-error, .auth-overlay, .inventory-overlay').forEach((el) => el.remove());
+  document.querySelectorAll('.crosshair, .streetcraft-status, .streetcraft-play-overlay, .streetcraft-block-info, .streetcraft-error, .auth-overlay, .inventory-overlay').forEach((el) => el.remove());
 });
 
 vi.mock('three', async () => {
@@ -39,7 +39,7 @@ describe('StreetCraft web bootstrap', () => {
     expect(container.querySelector('canvas')).not.toBeNull();
     expect(document.querySelector('.crosshair')).not.toBeNull();
     expect(document.querySelector('.streetcraft-status')).not.toBeNull();
-    expect(document.querySelector('.streetcraft-click-hint')).not.toBeNull();
+    expect(document.querySelector('.streetcraft-play-overlay')).not.toBeNull();
 
     app.dispose();
     container.remove();
@@ -54,7 +54,7 @@ describe('StreetCraft web bootstrap', () => {
 
     expect(document.querySelector('.crosshair')).toBeNull();
     expect(document.querySelector('.streetcraft-status')).toBeNull();
-    expect(document.querySelector('.streetcraft-click-hint')).toBeNull();
+    expect(document.querySelector('.streetcraft-play-overlay')).toBeNull();
 
     container.remove();
   });

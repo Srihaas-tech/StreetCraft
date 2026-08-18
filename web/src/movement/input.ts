@@ -53,9 +53,11 @@ export class MovementInput {
   }
 
   private readonly handleKeyDown = (event: Event): void => {
-    const code = (event as KeyboardEvent).code;
+    const keyboardEvent = event as KeyboardEvent;
+    const code = keyboardEvent.code;
     if (isMovementKey(code)) {
       this.pressedKeys.add(code);
+      keyboardEvent.preventDefault();
     }
   };
 

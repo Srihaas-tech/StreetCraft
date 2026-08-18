@@ -37,7 +37,7 @@ export class TileManager {
   isSolidBlock(x: number, y: number, z: number): boolean {
     const key = `${x},${z}`;
     const maxY = this.solidBlocks.get(key);
-    return maxY !== undefined && y <= maxY;
+    return maxY !== undefined && y < maxY;
   }
 
   getSurfaceHeight(worldX: number, worldZ: number): number | undefined {

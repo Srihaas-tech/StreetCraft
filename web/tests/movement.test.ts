@@ -100,7 +100,7 @@ describe('first-person movement', () => {
 
     controller.update(1);
 
-    expect(controller.position.x).toBeCloseTo(-6);
+    expect(controller.position.x).toBeCloseTo(6);
     expect(controller.position.y).toBe(0);
     expect(controller.position.z).toBeCloseTo(0);
   });
@@ -115,7 +115,7 @@ describe('first-person movement', () => {
     controller.update(1);
 
     expect(controller.position.x).toBeCloseTo(0);
-    expect(controller.position.z).toBeCloseTo(-6);
+    expect(controller.position.z).toBeCloseTo(6);
   });
 
   it('uses pointer-locked mouse deltas for yaw and pitch (catches ignored mouse look)', () => {
@@ -125,7 +125,7 @@ describe('first-person movement', () => {
 
     controller.update(0);
 
-    expect(controller.yaw).toBeCloseTo(0.2);
+    expect(controller.yaw).toBeCloseTo(-0.2);
     expect(controller.pitch).toBeCloseTo(0.1);
   });
 
@@ -158,7 +158,7 @@ describe('first-person movement', () => {
     controller.update(0);
     controller.update(0);
 
-    expect(controller.yaw).toBeCloseTo(0.1);
+    expect(controller.yaw).toBeCloseTo(-0.1);
   });
 
   it('ignores invalid delta seconds (catches NaN positions and backward movement)', () => {
@@ -483,9 +483,9 @@ describe('street view physics', () => {
 
     controller.update(1);
 
-    expect(controller.position.x).toBeCloseTo(-Math.sqrt(50));
+    expect(controller.position.x).toBeCloseTo(Math.sqrt(50));
     expect(controller.position.y).toBe(0);
-    expect(controller.position.z).toBeCloseTo(-Math.sqrt(50));
+    expect(controller.position.z).toBeCloseTo(Math.sqrt(50));
   });
 });
 

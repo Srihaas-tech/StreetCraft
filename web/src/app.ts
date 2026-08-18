@@ -48,10 +48,14 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
     '<span class="key">Click</span> Block info';
   document.body.appendChild(statusBar);
 
-  const clickHint = document.createElement('div');
-  clickHint.className = 'streetcraft-click-hint';
-  clickHint.textContent = 'Click to select a block';
-  document.body.appendChild(clickHint);
+  const playOverlay = document.createElement('div');
+  playOverlay.className = 'streetcraft-play-overlay';
+  playOverlay.innerHTML = '<div class="play-text">Click to Play</div><div class="play-sub">WASD to move &middot; Space to jump &middot; Mouse to look</div>';
+  document.body.appendChild(playOverlay);
+
+  const debugHud = document.createElement('div');
+  debugHud.className = 'streetcraft-debug-hud';
+  document.body.appendChild(debugHud);
 
   const blockInfoContainer = document.createElement('div');
   document.body.appendChild(blockInfoContainer);
@@ -86,12 +90,20 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
     }
   });
 
+  playOverlay.addEventListener('click', () => {
+    if (!pointerLocked) {
+      renderer.domElement.requestPointerLock();
+    }
+  });
+
   document.addEventListener('pointerlockchange', () => {
     pointerLocked = document.pointerLockElement === renderer.domElement;
     if (pointerLocked) {
       clock.start();
+      playOverlay.style.display = 'none';
     } else {
       clock.stop();
+      playOverlay.style.display = '';
     }
   });
 
@@ -348,6 +360,7 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
   let animationId = requestAnimationFrame(animate);
   let spawnSnapped = false;
 
+  let frameCount = 0;
   function animate() {
     animationId = requestAnimationFrame(animate);
     const delta = clock.getDelta();
@@ -363,6 +376,17 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
     }
     cameraController.update(delta);
     renderer.render(scene, camera);
+
+    frameCount++;
+    if (frameCount % 10 === 0) {
+      debugHud.textContent =
+        `pos: ${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)} | ` +
+        `vel: ${cameraController.velocity.x.toFixed(2)}, ${cameraController.velocity.y.toFixed(2)}, ${cameraController.velocity.z.toFixed(2)} | ` +
+        `grounded: ${cameraController.grounded} | ` +
+        `pointer: ${pointerLocked} | ` +
+        `delta: ${delta.toFixed(4)} | ` +
+        `tiles: ${activeTileManager !== null ? 'loaded' : 'loading'}`;
+    }
   }
 
   const onResize = () => {
@@ -387,7 +411,8 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
       renderer.domElement.remove();
       crosshair.remove();
       statusBar.remove();
-      clickHint.remove();
+      playOverlay.remove();
+      debugHud.remove();
       blockInfoContainer.remove();
       inventoryScreen.close();
       if (errorTimeout !== null) clearTimeout(errorTimeout);
