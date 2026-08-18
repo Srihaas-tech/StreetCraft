@@ -5,6 +5,8 @@ import {
   Vector3,
   Clock,
   Object3D,
+  MeshBasicMaterial,
+  Color,
 } from 'three';
 import { streetCraftConfig } from './config';
 import { CameraController } from './movement/camera-controller';
@@ -16,6 +18,8 @@ import { createAuthClient, AuthRequestError } from './auth/auth-client';
 import { createSessionStore } from './auth/session-store';
 import { InventoryScreen } from './inventory/inventory-screen';
 import { ItemAtlas } from './inventory/item-atlas';
+import { HiresTileLoader } from './bluemap/hires-tile-loader';
+import { TileManager } from './bluemap/tile-manager';
 
 const MAX_RAYCAST_DISTANCE = 8;
 
@@ -338,11 +342,15 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
   }
 
   let animationId = requestAnimationFrame(animate);
+  let activeTileManager: TileManager | null = null;
 
   function animate() {
     animationId = requestAnimationFrame(animate);
     const delta = clock.getDelta();
     cameraController.update(delta);
+    if (activeTileManager !== null) {
+      activeTileManager.update(camera.position.x, camera.position.z);
+    }
     renderer.render(scene, camera);
   }
 
@@ -353,10 +361,14 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
   };
   window.addEventListener('resize', onResize);
 
-  void loadTerrain(scene, terrainObjects);
+  void loadTerrain(scene, terrainObjects, camera, (tm) => { activeTileManager = tm; });
 
   return {
     dispose() {
+      if (activeTileManager !== null) {
+        activeTileManager.dispose();
+        activeTileManager = null;
+      }
       cancelAnimationFrame(animationId);
       window.removeEventListener('resize', onResize);
       input.dispose();
@@ -374,7 +386,12 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
   };
 }
 
-async function loadTerrain(_scene: Scene, _objects: Object3D[]): Promise<void> {
+async function loadTerrain(
+  scene: Scene,
+  objects: Object3D[],
+  camera: PerspectiveCamera,
+  onTileManager: (tm: TileManager) => void,
+): Promise<void> {
   try {
     const settingsResponse = await fetch(`${streetCraftConfig.blueMapOrigin}/settings.json`);
     if (!settingsResponse.ok) {
@@ -382,9 +399,14 @@ async function loadTerrain(_scene: Scene, _objects: Object3D[]): Promise<void> {
       return;
     }
 
-    const settings = await settingsResponse.json() as { maps?: string[]; mapDataRoot?: string };
-    const maps = settings.maps ?? [];
-    const mapDataRoot = settings.mapDataRoot ?? 'maps';
+    const globalSettings = await settingsResponse.json() as {
+      maps?: string[];
+      mapDataRoot?: string;
+      clientDecompression?: boolean;
+    };
+    const maps = globalSettings.maps ?? [];
+    const mapDataRoot = globalSettings.mapDataRoot ?? 'maps';
+    const clientDecompression = globalSettings.clientDecompression ?? false;
 
     if (maps.length === 0) {
       showMapError('No BlueMap maps found');
@@ -392,17 +414,95 @@ async function loadTerrain(_scene: Scene, _objects: Object3D[]): Promise<void> {
     }
 
     const mapId = maps[0];
-    const mapSettingsUrl = `${streetCraftConfig.blueMapOrigin}/${mapDataRoot}/${mapId}/settings.json`;
+    const origin = streetCraftConfig.blueMapOrigin;
+
+    const mapSettingsUrl = `${origin}/${mapDataRoot}/${mapId}/settings.json`;
     const mapSettingsResponse = await fetch(mapSettingsUrl);
     if (!mapSettingsResponse.ok) {
       showMapError('BlueMap map settings unavailable');
       return;
     }
 
-    showMapError(`BlueMap map "${mapId}" loaded. Terrain tiles will appear as they are fetched.`);
+    const mapSettings = await mapSettingsResponse.json() as {
+      name?: string;
+      startPos?: number[];
+      skyColor?: number[];
+      voidColor?: number[];
+      hires?: {
+        tileSize?: number[];
+        scale?: number[];
+        translate?: number[];
+      };
+    };
+
+    const tileSettings = {
+      tileSize: {
+        x: Array.isArray(mapSettings.hires?.tileSize) ? mapSettings.hires!.tileSize![0] : 32,
+        z: Array.isArray(mapSettings.hires?.tileSize) ? mapSettings.hires!.tileSize![1] : 32,
+      },
+      scale: {
+        x: Array.isArray(mapSettings.hires?.scale) ? mapSettings.hires!.scale![0] : 1,
+        z: Array.isArray(mapSettings.hires?.scale) ? mapSettings.hires!.scale![1] : 1,
+      },
+      translate: {
+        x: Array.isArray(mapSettings.hires?.translate) ? mapSettings.hires!.translate![0] : 2,
+        z: Array.isArray(mapSettings.hires?.translate) ? mapSettings.hires!.translate![1] : 2,
+      },
+    };
+
+    if (mapSettings.skyColor && mapSettings.skyColor.length >= 3) {
+      scene.background = new Color(mapSettings.skyColor[0], mapSettings.skyColor[1], mapSettings.skyColor[2]);
+    } else {
+      scene.background = new Color(0x87CEEB);
+    }
+
+    const startPos = mapSettings.startPos;
+    if (Array.isArray(startPos) && startPos.length >= 2) {
+      camera.position.set(startPos[0], 80, startPos[1]);
+    } else {
+      camera.position.set(
+        tileSettings.translate.x + tileSettings.tileSize.x * 2,
+        80,
+        tileSettings.translate.z + tileSettings.tileSize.z * 2,
+      );
+    }
+
+    const tileUrlBuilder = (tileX: number, tileZ: number): string => {
+      const path = coordinatePath(tileX, tileZ);
+      const ext = clientDecompression ? '.gz' : '';
+      return `${origin}/${encodeURIComponent(mapDataRoot)}/${encodeURIComponent(mapId)}/tiles/0/${path}.prbm${ext}`;
+    };
+
+    const material = new MeshBasicMaterial({ vertexColors: true });
+
+    const loader = new HiresTileLoader(tileUrlBuilder, tileSettings, [material]);
+
+    const tileManager = new TileManager({
+      loader,
+      scene,
+      terrainObjects: objects,
+      settings: tileSettings,
+      viewDistance: 256,
+    });
+
+    onTileManager(tileManager);
+
+    removeMapErrors();
+    showMapError(`BlueMap map "${mapSettings.name ?? mapId}" loaded.`);
+    setTimeout(removeMapErrors, 3000);
   } catch {
     showMapError('Cannot reach BlueMap. Terrain is unavailable.');
   }
+}
+
+function coordinatePath(x: number, z: number): string {
+  const segmentPath = (axis: 'x' | 'z', coordinate: number): string => {
+    const abs = Math.abs(coordinate);
+    const digits = String(abs);
+    const first = coordinate < 0 ? `${axis}-${digits[0]}` : `${axis}${digits[0]}`;
+    return `${first}${digits.slice(1).split('').map((d) => `/${d}`).join('')}`;
+  };
+  return `${segmentPath('x', x)}/${segmentPath('z', z)}`;
 }
 
 function showMapError(message: string) {
@@ -410,4 +510,8 @@ function showMapError(message: string) {
   el.className = 'streetcraft-error';
   el.textContent = message;
   document.body.appendChild(el);
+}
+
+function removeMapErrors(): void {
+  document.querySelectorAll('.streetcraft-error').forEach((el) => el.remove());
 }
