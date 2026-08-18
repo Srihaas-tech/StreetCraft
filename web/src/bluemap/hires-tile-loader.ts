@@ -15,6 +15,7 @@ export interface HiresTileSettings {
 }
 
 const HIRES_VERTEX_SHADER = `
+attribute float ao;
 varying vec3 vColor;
 varying vec2 vUv;
 varying float vAo;
@@ -116,6 +117,7 @@ export class HiresTileLoader {
     const material = this.materials.length > 0
       ? this.materials
       : new ShaderMaterial({
+          uniforms: {},
           vertexShader: HIRES_VERTEX_SHADER,
           fragmentShader: HIRES_FRAGMENT_SHADER,
           vertexColors: true,
