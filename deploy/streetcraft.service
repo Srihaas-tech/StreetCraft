@@ -1,0 +1,27 @@
+[Unit]
+Description=StreetCraft - Minecraft Street View Web Application
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pangrusak
+WorkingDirectory=/home/pangrusak/CoreCraft_SERVER/streetcraft
+ExecStart=/usr/bin/node server/src/index.ts
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+EnvironmentFile=/home/pangrusak/CoreCraft_SERVER/streetcraft/.env
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/home/pangrusak/CoreCraft_SERVER/streetcraft
+
+# Resource limits
+LimitNOFILE=1024
+MemoryMax=256M
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target

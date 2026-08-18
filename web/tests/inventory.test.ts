@@ -166,12 +166,14 @@ describe('InventoryScreen', () => {
 
   it('replaces its prior modal and removes tooltip resources idempotently', () => {
     const screen = open(inventory({ items: [item(0)] }));
+    expect(document.querySelector('[data-slot="0"]')?.getAttribute('aria-label')).toContain('Diamond Sword');
     document.querySelector<HTMLElement>('[data-slot="0"]')!.focus();
     expect(document.querySelector('.inventory-tooltip')).not.toBeNull();
 
     expect(screen.open(inventory({ items: [item(1)] }))).toEqual({ ok: true });
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
-    expect(document.querySelector('[data-slot="0"]')).toBeNull();
+    expect(document.querySelector('[data-slot="0"]')?.getAttribute('aria-label')).toBeNull();
+    expect(document.querySelector('[data-slot="1"]')?.getAttribute('aria-label')).toContain('Diamond Sword');
     expect(document.querySelector('.inventory-tooltip')).toBeNull();
     screen.close();
     screen.close();
@@ -181,11 +183,12 @@ describe('InventoryScreen', () => {
   it('fails closed for invalid data and renders untrusted text as text', () => {
     const screen = new InventoryScreen({ document, atlas: new ItemAtlas('/deterministic-items/') });
     expect(screen.open({ ...inventory(), size: 54 })).toEqual({ ok: false, error: 'invalid_inventory_data' });
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector('.inventory-panel')).toBeNull();
 
-    open(inventory({ items: [item(0, { displayName: '<img src=x onerror=alert(1)>' })] }));
+    const validScreen = open(inventory({ items: [item(0, { displayName: '<img src=x onerror=alert(1)>' })] }));
     expect(document.querySelector('[data-slot="0"] img[src="x"]')).toBeNull();
     document.querySelector<HTMLElement>('[data-slot="0"]')!.focus();
     expect(document.querySelector('.inventory-tooltip')?.textContent).toContain('<img src=x onerror=alert(1)>');
+    validScreen.close();
   });
 });
