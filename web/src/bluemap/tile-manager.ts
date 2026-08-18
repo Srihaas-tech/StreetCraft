@@ -1,4 +1,4 @@
-import { Scene, Object3D, Mesh } from 'three';
+import { Scene, Object3D, Mesh, BufferAttribute } from 'three';
 import type { HiresTileLoader } from './hires-tile-loader';
 import type { HiresTileSettings } from './hires-tile-loader';
 
@@ -21,6 +21,7 @@ export class TileManager {
   private readonly viewDistance: number;
   private readonly tiles = new Map<string, Mesh>();
   private readonly loading = new Set<string>();
+  private readonly solidBlocks = new Map<string, number>();
   private centerTileX = Infinity;
   private centerTileZ = Infinity;
   private scheduledUpdate: ReturnType<typeof setTimeout> | null = null;
@@ -31,6 +32,58 @@ export class TileManager {
     this.terrainObjects = options.terrainObjects;
     this.settings = options.settings;
     this.viewDistance = options.viewDistance ?? DEFAULT_VIEW_DISTANCE;
+  }
+
+  isSolidBlock(x: number, y: number, z: number): boolean {
+    const key = `${x},${z}`;
+    const maxY = this.solidBlocks.get(key);
+    return maxY !== undefined && y <= maxY;
+  }
+
+  private buildCollisionData(mesh: Mesh): void {
+    const geo = mesh.geometry;
+    const posAttr = geo.getAttribute('position') as BufferAttribute | undefined;
+    if (posAttr === undefined) return;
+
+    const sx = mesh.scale.x;
+    const sz = mesh.scale.z;
+    const px = mesh.position.x;
+    const pz = mesh.position.z;
+
+    const count = posAttr.count;
+    for (let i = 0; i < count; i++) {
+      const wx = Math.floor(posAttr.getX(i) * sx + px);
+      const wy = Math.floor(posAttr.getY(i));
+      const wz = Math.floor(posAttr.getZ(i) * sz + pz);
+      const key = `${wx},${wz}`;
+      const prev = this.solidBlocks.get(key);
+      if (prev === undefined || wy > prev) {
+        this.solidBlocks.set(key, wy);
+      }
+    }
+  }
+
+  private clearCollisionData(mesh: Mesh): void {
+    const geo = mesh.geometry;
+    const posAttr = geo.getAttribute('position') as BufferAttribute | undefined;
+    if (posAttr === undefined) return;
+
+    const sx = mesh.scale.x;
+    const sz = mesh.scale.z;
+    const px = mesh.position.x;
+    const pz = mesh.position.z;
+
+    const count = posAttr.count;
+    const columns = new Set<string>();
+    for (let i = 0; i < count; i++) {
+      const wx = Math.floor(posAttr.getX(i) * sx + px);
+      const wz = Math.floor(posAttr.getZ(i) * sz + pz);
+      columns.add(`${wx},${wz}`);
+    }
+
+    for (const key of columns) {
+      this.solidBlocks.delete(key);
+    }
   }
 
   update(cameraX: number, cameraZ: number): void {
@@ -65,6 +118,7 @@ export class TileManager {
         this.scene.remove(mesh);
         const idx = this.terrainObjects.indexOf(mesh);
         if (idx !== -1) this.terrainObjects.splice(idx, 1);
+        this.clearCollisionData(mesh);
         mesh.geometry.dispose();
         this.tiles.delete(key);
       }
@@ -96,7 +150,10 @@ export class TileManager {
         this.loading.add(key);
         this.loader.load(tx, tz, () => false).then((mesh) => {
           this.loading.delete(key);
-          if (mesh === null) return;
+          if (mesh === null) {
+            console.warn(`[StreetCraft] Tile ${key} returned null`);
+            return;
+          }
 
           if (this.tiles.has(key)) {
             mesh.geometry.dispose();
@@ -106,6 +163,7 @@ export class TileManager {
           this.tiles.set(key, mesh);
           this.scene.add(mesh);
           this.terrainObjects.push(mesh);
+          this.buildCollisionData(mesh);
 
           if (this.scheduledUpdate === null && this.loading.size === 0) {
             this.scheduledUpdate = setTimeout(() => {
@@ -134,5 +192,6 @@ export class TileManager {
     }
     this.tiles.clear();
     this.loading.clear();
+    this.solidBlocks.clear();
   }
 }

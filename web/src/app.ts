@@ -5,7 +5,6 @@ import {
   Vector3,
   Clock,
   Object3D,
-  MeshBasicMaterial,
   Color,
 } from 'three';
 import { streetCraftConfig } from './config';
@@ -18,7 +17,7 @@ import { createAuthClient, AuthRequestError } from './auth/auth-client';
 import { createSessionStore } from './auth/session-store';
 import { InventoryScreen } from './inventory/inventory-screen';
 import { ItemAtlas } from './inventory/item-atlas';
-import { HiresTileLoader } from './bluemap/hires-tile-loader';
+import { HiresTileLoader, createHiresMaterials } from './bluemap/hires-tile-loader';
 import { TileManager } from './bluemap/tile-manager';
 
 const MAX_RAYCAST_DISTANCE = 8;
@@ -67,7 +66,12 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
     renderer.domElement as unknown as PointerLockElement,
     document as unknown as PointerLockEventTarget,
   );
-  const cameraController = new CameraController(input, { camera });
+  let activeTileManager: TileManager | null = null;
+  const collisionWorld = {
+    isSolidBlock: (x: number, y: number, z: number): boolean =>
+      activeTileManager !== null && activeTileManager.isSolidBlock(x, y, z),
+  };
+  const cameraController = new CameraController(input, { camera, collisionWorld });
   const clock = new Clock(false);
 
   let pointerLocked = false;
@@ -342,7 +346,6 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
   }
 
   let animationId = requestAnimationFrame(animate);
-  let activeTileManager: TileManager | null = null;
 
   function animate() {
     animationId = requestAnimationFrame(animate);
@@ -479,9 +482,19 @@ async function loadTerrain(
       return `${origin}/${encodeURIComponent(mapDataRoot)}/${encodeURIComponent(mapId)}/tiles/0/${path}.prbm${ext}`;
     };
 
-    const material = new MeshBasicMaterial({ vertexColors: true });
+    let materials: import('three').Material[] = [];
+    try {
+      const texturesUrl = `${origin}/${encodeURIComponent(mapDataRoot)}/${encodeURIComponent(mapId)}/textures.json`;
+      const texturesResponse = await fetch(texturesUrl);
+      if (texturesResponse.ok) {
+        const texturesData = await texturesResponse.json() as Array<{ texture: string }>;
+        materials = createHiresMaterials(texturesData);
+      }
+    } catch {
+      console.warn('[StreetCraft] Failed to load textures.json, using fallback vertex colors');
+    }
 
-    const loader = new HiresTileLoader(tileUrlBuilder, tileSettings, [material]);
+    const loader = new HiresTileLoader(tileUrlBuilder, tileSettings, materials);
 
     const tileManager = new TileManager({
       loader,

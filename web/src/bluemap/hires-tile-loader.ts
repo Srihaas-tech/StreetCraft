@@ -2,6 +2,9 @@ import {
   Mesh,
   ShaderMaterial,
   Material,
+  Texture,
+  NearestFilter,
+  ClampToEdgeWrapping,
 } from 'three';
 import { parsePrbm, prbmToBufferGeometry } from './prbm-parser';
 
@@ -13,30 +16,65 @@ export interface HiresTileSettings {
 
 const HIRES_VERTEX_SHADER = `
 varying vec3 vColor;
+varying vec2 vUv;
 varying float vAo;
-attribute float ao;
 
 void main() {
   vColor = color;
+  vUv = uv;
   vAo = ao;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
 
 const HIRES_FRAGMENT_SHADER = `
+uniform sampler2D textureImage;
 varying vec3 vColor;
+varying vec2 vUv;
 varying float vAo;
 
 void main() {
-  gl_FragColor = vec4(vColor * vAo, 1.0);
+  vec4 texColor = texture2D(textureImage, vUv);
+  if (texColor.a < 0.01) discard;
+  gl_FragColor = vec4(texColor.rgb * vColor * vAo, texColor.a);
 }
 `;
+
+export function createHiresMaterials(textures: Array<{ texture: string }>): Material[] {
+  return textures.map((entry) => {
+    const image = new Image();
+    image.src = entry.texture;
+
+    const texture = new Texture();
+    texture.image = image;
+    texture.magFilter = NearestFilter;
+    texture.minFilter = NearestFilter;
+    texture.wrapS = ClampToEdgeWrapping;
+    texture.wrapT = ClampToEdgeWrapping;
+    texture.flipY = false;
+
+    image.addEventListener('load', () => {
+      texture.needsUpdate = true;
+    });
+
+    return new ShaderMaterial({
+      uniforms: {
+        textureImage: { value: texture },
+      },
+      vertexShader: HIRES_VERTEX_SHADER,
+      fragmentShader: HIRES_FRAGMENT_SHADER,
+      vertexColors: true,
+      transparent: false,
+      depthWrite: true,
+      depthTest: true,
+    });
+  });
+}
 
 export class HiresTileLoader {
   private readonly tileUrlBuilder: (tileX: number, tileZ: number) => string;
   private readonly settings: HiresTileSettings;
   private readonly materials: Material[];
-  private fallbackMaterial: Material | null = null;
 
   constructor(
     tileUrlBuilder: (tileX: number, tileZ: number) => string,
@@ -48,22 +86,17 @@ export class HiresTileLoader {
     this.materials = materials;
   }
 
-  private getMaterial(): Material {
-    if (this.materials.length > 0) return this.materials[0]!;
-    if (this.fallbackMaterial === null) {
-      this.fallbackMaterial = new ShaderMaterial({
-        vertexShader: HIRES_VERTEX_SHADER,
-        fragmentShader: HIRES_FRAGMENT_SHADER,
-        vertexColors: true,
-      });
-    }
-    return this.fallbackMaterial;
+  getMaterials(): Material[] {
+    return this.materials;
   }
 
   async load(tileX: number, tileZ: number, cancelCheck?: () => boolean): Promise<Mesh | null> {
     const url = this.tileUrlBuilder(tileX, tileZ);
     const response = await fetch(url);
-    if (!response.ok) return null;
+    if (!response.ok) {
+      console.warn(`[StreetCraft] Tile fetch failed: ${url} (HTTP ${response.status})`);
+      return null;
+    }
 
     const arrayBuffer = await response.arrayBuffer();
     if (cancelCheck?.()) return null;
@@ -80,7 +113,15 @@ export class HiresTileLoader {
 
     geometry.computeBoundingSphere();
 
-    const mesh = new Mesh(geometry, this.getMaterial()!);
+    const material = this.materials.length > 0
+      ? this.materials
+      : new ShaderMaterial({
+          vertexShader: HIRES_VERTEX_SHADER,
+          fragmentShader: HIRES_FRAGMENT_SHADER,
+          vertexColors: true,
+        });
+
+    const mesh = new Mesh(geometry, material);
     mesh.position.set(
       tileX * this.settings.tileSize.x + this.settings.translate.x,
       0,
