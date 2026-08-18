@@ -10,6 +10,7 @@ export default defineConfig({
       '/bluemap': {
         target: 'http://127.0.0.1:8101',
         changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/bluemap/, ''),
       },
     },
   },
