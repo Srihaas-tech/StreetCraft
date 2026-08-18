@@ -51,6 +51,7 @@ export class TileManager {
     const posAttr = geo.getAttribute('position') as BufferAttribute | undefined;
     if (posAttr === undefined) return;
 
+    const normAttr = geo.getAttribute('normal') as BufferAttribute | undefined;
     const sx = mesh.scale.x;
     const sz = mesh.scale.z;
     const px = mesh.position.x;
@@ -58,6 +59,17 @@ export class TileManager {
 
     const count = posAttr.count;
     for (let i = 0; i < count; i++) {
+      if (normAttr !== undefined) {
+        const nx = normAttr.getX(i);
+        const ny = normAttr.getY(i);
+        const nz = normAttr.getZ(i);
+        const axisAligned =
+          (Math.abs(nx) > 0.9 && Math.abs(ny) < 0.1 && Math.abs(nz) < 0.1) ||
+          (Math.abs(ny) > 0.9 && Math.abs(nx) < 0.1 && Math.abs(nz) < 0.1) ||
+          (Math.abs(nz) > 0.9 && Math.abs(nx) < 0.1 && Math.abs(ny) < 0.1);
+        if (!axisAligned) continue;
+      }
+
       const wx = Math.floor(posAttr.getX(i) * sx + px);
       const wy = Math.floor(posAttr.getY(i));
       const wz = Math.floor(posAttr.getZ(i) * sz + pz);
