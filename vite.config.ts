@@ -6,6 +6,12 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 8102,
     strictPort: true,
+    proxy: {
+      '/bluemap': {
+        target: 'http://127.0.0.1:8101',
+        changeOrigin: true,
+      },
+    },
   },
   build: {
     outDir: '../dist/web',
