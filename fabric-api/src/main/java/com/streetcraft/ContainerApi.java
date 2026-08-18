@@ -29,6 +29,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Loopback-only HTTP bridge to allowlisted, read-only Minecraft state. */
 public final class ContainerApi {
@@ -158,9 +159,10 @@ public final class ContainerApi {
 
     private Response dispatch(ResponseSupplier supplier) {
         CompletableFuture<Response> response = new CompletableFuture<>();
+        DispatchClaim claim = new DispatchClaim();
         try {
             scheduler.execute(() -> {
-                if (response.isDone()) {
+                if (!claim.tryClaimRunning()) {
                     return;
                 }
                 try {
@@ -170,15 +172,19 @@ public final class ContainerApi {
                 }
             });
         } catch (RuntimeException unavailable) {
+            claim.cancelQueued();
             return error(503, "service_unavailable");
         }
 
         try {
             return response.get(serverThreadTimeout.toMillis(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException timeout) {
+            claim.cancelQueued();
             response.cancel(false);
             return error(503, "service_unavailable");
         } catch (InterruptedException interrupted) {
+            claim.cancelQueued();
+            response.cancel(false);
             Thread.currentThread().interrupt();
             return error(503, "service_unavailable");
         } catch (ExecutionException failure) {
@@ -412,6 +418,24 @@ public final class ContainerApi {
     @FunctionalInterface
     private interface ResponseSupplier {
         Response get();
+    }
+
+    static final class DispatchClaim {
+        private final AtomicReference<State> state = new AtomicReference<>(State.QUEUED);
+
+        boolean tryClaimRunning() {
+            return state.compareAndSet(State.QUEUED, State.RUNNING);
+        }
+
+        boolean cancelQueued() {
+            return state.compareAndSet(State.QUEUED, State.CANCELLED);
+        }
+
+        private enum State {
+            QUEUED,
+            RUNNING,
+            CANCELLED
+        }
     }
 
     private static final class JdkListenerFactory implements ListenerFactory {

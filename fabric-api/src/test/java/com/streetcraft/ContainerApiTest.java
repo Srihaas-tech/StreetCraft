@@ -6,15 +6,17 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -139,7 +141,6 @@ class ContainerApiTest {
         ContainerApi api = api((dimension, x, y, z) -> new ContainerReader.NotFound(), immediateScheduler());
 
         assertTrue(api.start(9123));
-        assertEquals(InetAddress.getLoopbackAddress().getHostAddress(), listenerFactory.address.getAddress().getHostAddress());
         assertEquals("127.0.0.1", listenerFactory.address.getAddress().getHostAddress());
         assertEquals(9123, listenerFactory.address.getPort());
 
@@ -209,6 +210,75 @@ class ContainerApiTest {
         assertResponse(timeoutApi.handle("GET", request), 503, "{\"error\":\"service_unavailable\"}");
         delayedRead.get().run();
         assertResponse(unavailableApi.handle("GET", request), 503, "{\"error\":\"service_unavailable\"}");
+        assertEquals(0, containerReads.get());
+    }
+
+    @Test
+    void cancellationBetweenWorkerWakeupAndReadClaimAtomicallyPreventsTheRead() throws Exception {
+        ContainerApi.DispatchClaim claim = new ContainerApi.DispatchClaim();
+        CountDownLatch workerAwake = new CountDownLatch(1);
+        CountDownLatch allowClaim = new CountDownLatch(1);
+        AtomicInteger reads = new AtomicInteger();
+        Thread worker = new Thread(() -> {
+            workerAwake.countDown();
+            try {
+                allowClaim.await();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            if (claim.tryClaimRunning()) {
+                reads.incrementAndGet();
+            }
+        }, "minecraft-claim-test");
+
+        worker.start();
+        assertTrue(workerAwake.await(1, TimeUnit.SECONDS));
+        assertTrue(claim.cancelQueued());
+        allowClaim.countDown();
+        worker.join(1_000);
+
+        assertFalse(worker.isAlive());
+        assertEquals(0, reads.get());
+        assertFalse(claim.tryClaimRunning());
+    }
+
+    @Test
+    void interruptedWaitCancelsQueuedWorkBeforeExecutorShutdownCanRunIt() throws Exception {
+        AtomicReference<Runnable> delayedRead = new AtomicReference<>();
+        CountDownLatch scheduled = new CountDownLatch(1);
+        AtomicReference<ContainerApi.Response> result = new AtomicReference<>();
+        AtomicBoolean interruptRestored = new AtomicBoolean();
+        ContainerApi api = new ContainerApi(
+                (dimension, x, y, z) -> {
+                    containerReads.incrementAndGet();
+                    return new ContainerReader.NotFound();
+                },
+                (dimension, x, y, z) -> new BlockReader.NotFound(),
+                command -> {
+                    delayedRead.set(command);
+                    scheduled.countDown();
+                },
+                listenerFactory,
+                Duration.ofSeconds(5)
+        );
+        Thread requestWorker = new Thread(() -> {
+            result.set(api.handle(
+                    "GET",
+                    URI.create("/container?dimension=minecraft:overworld&x=1&y=64&z=3")
+            ));
+            interruptRestored.set(Thread.currentThread().isInterrupted());
+        }, "http-worker-shutdown-test");
+
+        requestWorker.start();
+        assertTrue(scheduled.await(1, TimeUnit.SECONDS));
+        requestWorker.interrupt();
+        requestWorker.join(1_000);
+
+        assertFalse(requestWorker.isAlive());
+        assertResponse(result.get(), 503, "{\"error\":\"service_unavailable\"}");
+        assertTrue(interruptRestored.get());
+        delayedRead.get().run();
         assertEquals(0, containerReads.get());
     }
 
