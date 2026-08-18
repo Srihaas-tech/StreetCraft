@@ -66,6 +66,12 @@ export function resolveMovement(request: MovementRequest): MovementResolution {
   const position = finiteVectorOrZero(request.position);
   const velocity = finiteVectorOrZero(request.velocity);
 
+  let ejectionSteps = 0;
+  while (intersectsSolidBlock(position, bounds, request.world) && ejectionSteps < 200) {
+    position.y += 0.1;
+    ejectionSteps++;
+  }
+
   velocity.y = Math.max(velocity.y - (gravity * deltaSeconds), -terminalVelocity);
   const distance = scale(velocity, deltaSeconds);
   const steps = Math.max(1, Math.ceil(maxComponent(distance) / MAX_SUBSTEP_DISTANCE));
