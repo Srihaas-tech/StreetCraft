@@ -7,7 +7,7 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
 import net.minecraft.world.Heightmap;
 import net.minecraft.world.World;
-import net.minecraft.world.chunk.Chunk;
+import net.minecraft.world.chunk.WorldChunk;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -107,9 +107,11 @@ public final class CollisionReader {
         public int sampleHeightmap(int x, int z) {
             int chunkX = Math.floorDiv(x, 16);
             int chunkZ = Math.floorDiv(z, 16);
-            Chunk chunk = world.getChunkManager().getChunk(chunkX, chunkZ);
-            if (chunk == null) return -1;
-            return chunk.getHeightmap(Heightmap.Type.MOTION_BLOCKING).get(x & 15, z & 15);
+            var chunkObj = world.getChunkManager().getChunk(chunkX, chunkZ);
+            if (chunkObj instanceof WorldChunk chunk) {
+                return chunk.getHeightmap(Heightmap.Type.MOTION_BLOCKING).get(x & 15, z & 15);
+            }
+            return -1;
         }
     }
 }
