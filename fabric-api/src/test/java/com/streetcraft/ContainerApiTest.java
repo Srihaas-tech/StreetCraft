@@ -197,6 +197,7 @@ class ContainerApiTest {
                     return new ContainerReader.NotFound();
                 },
                 (dimension, x, y, z) -> new BlockReader.NotFound(),
+                (dimension, fromX, fromZ, toX, toZ) -> new CollisionReader.NotFound(),
                 delayedRead::set,
                 listenerFactory,
                 Duration.ofMillis(5)
@@ -255,6 +256,7 @@ class ContainerApiTest {
                     return new ContainerReader.NotFound();
                 },
                 (dimension, x, y, z) -> new BlockReader.NotFound(),
+                (dimension, fromX, fromZ, toX, toZ) -> new CollisionReader.NotFound(),
                 command -> {
                     delayedRead.set(command);
                     scheduled.countDown();
@@ -290,6 +292,7 @@ class ContainerApiTest {
                     blockReads.incrementAndGet();
                     return new BlockReader.Found(dimension, x, y, z, "minecraft:barrel", true);
                 },
+                (dimension, fromX, fromZ, toX, toZ) -> new CollisionReader.NotFound(),
                 immediateScheduler(),
                 listenerFactory,
                 Duration.ofSeconds(1)
@@ -314,6 +317,7 @@ class ContainerApiTest {
         ContainerApi missing = new ContainerApi(
                 (dimension, x, y, z) -> new ContainerReader.NotFound(),
                 (dimension, x, y, z) -> new BlockReader.NotFound(),
+                (dimension, fromX, fromZ, toX, toZ) -> new CollisionReader.NotFound(),
                 immediateScheduler(), listenerFactory, Duration.ofSeconds(1)
         );
         ContainerApi corrupt = api(
@@ -329,10 +333,58 @@ class ContainerApiTest {
         assertFalse(response.body().contains("secret"));
     }
 
+    @Test
+    void returnsCollisionHeightsForAValidRegion() {
+        ContainerApi api = new ContainerApi(
+                (dimension, x, y, z) -> new ContainerReader.NotFound(),
+                (dimension, x, y, z) -> new BlockReader.NotFound(),
+                (dimension, fromX, fromZ, toX, toZ) -> new CollisionReader.Found(
+                        dimension, fromX, fromZ, 2, 1, new int[]{64, 65}
+                ),
+                immediateScheduler(), listenerFactory, Duration.ofSeconds(1)
+        );
+
+        ContainerApi.Response response = api.handle(
+                "GET",
+                URI.create("/collision?dimension=minecraft:overworld&fromX=10&fromZ=20&toX=11&toZ=20")
+        );
+
+        assertResponse(response, 200,
+                "{\"dimension\":\"minecraft:overworld\",\"fromX\":10,\"fromZ\":20,\"width\":2,\"depth\":1,\"heights\":[64,65]}");
+    }
+
+    @Test
+    void rejectsCollisionQueryWithInvalidRange() {
+        ContainerApi api = api((dimension, x, y, z) -> new ContainerReader.NotFound(), immediateScheduler());
+
+        assertResponse(api.handle("GET",
+                URI.create("/collision?dimension=minecraft:overworld&fromX=11&fromZ=20&toX=10&toZ=20")),
+                400, "{\"error\":\"invalid_request\"}");
+    }
+
+    @Test
+    void rejectsCollisionQueryWithTooLargeRegion() {
+        ContainerApi api = api((dimension, x, y, z) -> new ContainerReader.NotFound(), immediateScheduler());
+
+        assertResponse(api.handle("GET",
+                URI.create("/collision?dimension=minecraft:overworld&fromX=0&fromZ=0&toX=32&toZ=32")),
+                400, "{\"error\":\"invalid_request\"}");
+    }
+
+    @Test
+    void rejectsCollisionQueryWithMissingParameters() {
+        ContainerApi api = api((dimension, x, y, z) -> new ContainerReader.NotFound(), immediateScheduler());
+
+        assertResponse(api.handle("GET",
+                URI.create("/collision?dimension=minecraft:overworld&fromX=0&fromZ=0&toX=5")),
+                400, "{\"error\":\"invalid_request\"}");
+    }
+
     private ContainerApi api(ContainerApi.ContainerLookup lookup, ContainerApi.ServerThreadScheduler scheduler) {
         return new ContainerApi(
                 lookup,
                 (dimension, x, y, z) -> new BlockReader.NotFound(),
+                (dimension, fromX, fromZ, toX, toZ) -> new CollisionReader.NotFound(),
                 scheduler,
                 listenerFactory,
                 Duration.ofSeconds(1)

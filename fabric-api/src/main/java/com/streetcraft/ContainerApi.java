@@ -41,6 +41,7 @@ public final class ContainerApi {
     private static final int MAX_Y = 2_047;
     private static final Duration DEFAULT_SERVER_THREAD_TIMEOUT = Duration.ofSeconds(1);
     static final int MAX_REQUEST_TARGET_BYTES = 4_096;
+    private static final int MAX_COLLISION_REGION_AREA = 1_024;
 
     private static final Map<String, String> JSON_HEADERS = Map.of(
             "Content-Type", "application/json; charset=utf-8",
@@ -50,6 +51,7 @@ public final class ContainerApi {
 
     private final ContainerLookup containerLookup;
     private final BlockLookup blockLookup;
+    private final CollisionLookup collisionLookup;
     private final ServerThreadScheduler scheduler;
     private final ListenerFactory listenerFactory;
     private final Duration serverThreadTimeout;
@@ -58,12 +60,14 @@ public final class ContainerApi {
     ContainerApi(
             ContainerLookup containerLookup,
             BlockLookup blockLookup,
+            CollisionLookup collisionLookup,
             ServerThreadScheduler scheduler,
             ListenerFactory listenerFactory,
             Duration serverThreadTimeout
     ) {
         this.containerLookup = Objects.requireNonNull(containerLookup, "containerLookup");
         this.blockLookup = Objects.requireNonNull(blockLookup, "blockLookup");
+        this.collisionLookup = Objects.requireNonNull(collisionLookup, "collisionLookup");
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
         this.listenerFactory = Objects.requireNonNull(listenerFactory, "listenerFactory");
         this.serverThreadTimeout = Objects.requireNonNull(serverThreadTimeout, "serverThreadTimeout");
@@ -76,9 +80,11 @@ public final class ContainerApi {
         Objects.requireNonNull(server, "server");
         ContainerReader containerReader = ContainerReader.fromServer(server);
         BlockReader blockReader = BlockReader.fromServer(server);
+        CollisionReader collisionReader = CollisionReader.fromServer(server);
         return new ContainerApi(
                 containerReader::read,
                 blockReader::read,
+                collisionReader::read,
                 server::execute,
                 new JdkListenerFactory(),
                 DEFAULT_SERVER_THREAD_TIMEOUT
@@ -136,8 +142,21 @@ public final class ContainerApi {
         }
 
         String path = uri.getRawPath();
-        if (!"/container".equals(path) && !"/block".equals(path)) {
+        if (!"/container".equals(path) && !"/block".equals(path) && !"/collision".equals(path)) {
             return error(404, "not_found");
+        }
+
+        if ("/collision".equals(path)) {
+            CollisionQuery collisionQuery;
+            try {
+                collisionQuery = parseCollisionQuery(uri.getRawQuery());
+            } catch (IllegalArgumentException exception) {
+                return error(400, "invalid_request");
+            }
+            return dispatch(() -> mapCollisionResult(collisionLookup.read(
+                    collisionQuery.dimension(), collisionQuery.fromX(), collisionQuery.fromZ(),
+                    collisionQuery.toX(), collisionQuery.toZ()
+            )));
         }
 
         PositionQuery query;
@@ -225,6 +244,35 @@ public final class ContainerApi {
         return error(500, "internal_error");
     }
 
+    private static Response mapCollisionResult(CollisionReader.ReadResult result) {
+        if (result instanceof CollisionReader.Found found) {
+            return json(200, collisionJson(found));
+        }
+        if (result instanceof CollisionReader.InvalidDimension) {
+            return error(400, "invalid_request");
+        }
+        if (result instanceof CollisionReader.NotFound) {
+            return error(404, "collision_not_found");
+        }
+        return error(500, "internal_error");
+    }
+
+    private static String collisionJson(CollisionReader.Found found) {
+        StringBuilder json = new StringBuilder();
+        json.append("{\"dimension\":").append(quote(found.dimension()))
+                .append(",\"fromX\":").append(found.fromX())
+                .append(",\"fromZ\":").append(found.fromZ())
+                .append(",\"width\":").append(found.width())
+                .append(",\"depth\":").append(found.depth())
+                .append(",\"heights\":[");
+        int[] heights = found.heights();
+        for (int i = 0; i < heights.length; i++) {
+            if (i > 0) json.append(',');
+            json.append(heights[i]);
+        }
+        return json.append("]}").toString();
+    }
+
     private static PositionQuery parseQuery(String rawQuery) {
         if (rawQuery == null || rawQuery.isEmpty()) {
             throw new IllegalArgumentException("query required");
@@ -255,6 +303,46 @@ public final class ContainerApi {
         int y = parseCoordinate(values.get("y"), MIN_Y, MAX_Y);
         int z = parseCoordinate(values.get("z"), -MAX_HORIZONTAL_COORDINATE, MAX_HORIZONTAL_COORDINATE);
         return new PositionQuery(dimension, x, y, z);
+    }
+
+    private static CollisionQuery parseCollisionQuery(String rawQuery) {
+        if (rawQuery == null || rawQuery.isEmpty()) {
+            throw new IllegalArgumentException("query required");
+        }
+        Map<String, String> values = new HashMap<>();
+        for (String pair : rawQuery.split("&", -1)) {
+            int separator = pair.indexOf('=');
+            if (separator < 1 || separator != pair.lastIndexOf('=')) {
+                throw new IllegalArgumentException("malformed parameter");
+            }
+            String key = strictDecode(pair.substring(0, separator));
+            String value = strictDecode(pair.substring(separator + 1));
+            if (!List.of("dimension", "fromX", "fromZ", "toX", "toZ").contains(key)
+                    || value.isEmpty()
+                    || values.putIfAbsent(key, value) != null) {
+                throw new IllegalArgumentException("invalid parameter");
+            }
+        }
+        if (values.size() != 5) {
+            throw new IllegalArgumentException("missing parameter");
+        }
+
+        String dimension = values.get("dimension");
+        if (Identifier.tryParse(dimension) == null) {
+            throw new IllegalArgumentException("invalid dimension");
+        }
+        int fromX = parseCoordinate(values.get("fromX"), -MAX_HORIZONTAL_COORDINATE, MAX_HORIZONTAL_COORDINATE);
+        int fromZ = parseCoordinate(values.get("fromZ"), -MAX_HORIZONTAL_COORDINATE, MAX_HORIZONTAL_COORDINATE);
+        int toX = parseCoordinate(values.get("toX"), -MAX_HORIZONTAL_COORDINATE, MAX_HORIZONTAL_COORDINATE);
+        int toZ = parseCoordinate(values.get("toZ"), -MAX_HORIZONTAL_COORDINATE, MAX_HORIZONTAL_COORDINATE);
+        if (fromX > toX || fromZ > toZ) {
+            throw new IllegalArgumentException("invalid range");
+        }
+        long area = (long) (toX - fromX + 1) * (toZ - fromZ + 1);
+        if (area > MAX_COLLISION_REGION_AREA) {
+            throw new IllegalArgumentException("region too large");
+        }
+        return new CollisionQuery(dimension, fromX, fromZ, toX, toZ);
     }
 
     private static int parseCoordinate(String value, int minimum, int maximum) {
@@ -383,6 +471,9 @@ public final class ContainerApi {
     record PositionQuery(String dimension, int x, int y, int z) {
     }
 
+    record CollisionQuery(String dimension, int fromX, int fromZ, int toX, int toZ) {
+    }
+
     record Response(int status, String body, Map<String, String> headers) {
         Response {
             Objects.requireNonNull(body, "body");
@@ -398,6 +489,11 @@ public final class ContainerApi {
     @FunctionalInterface
     interface BlockLookup {
         BlockReader.ReadResult read(String dimension, int x, int y, int z);
+    }
+
+    @FunctionalInterface
+    interface CollisionLookup {
+        CollisionReader.ReadResult read(String dimension, int fromX, int fromZ, int toX, int toZ);
     }
 
     @FunctionalInterface

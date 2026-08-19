@@ -12,6 +12,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/bluemap/, ''),
       },
+      '/api/collision': {
+        target: 'http://127.0.0.1:8103',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
     },
   },
   build: {

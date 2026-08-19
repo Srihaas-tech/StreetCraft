@@ -539,6 +539,8 @@ async function loadTerrain(
       terrainObjects: objects,
       settings: tileSettings,
       viewDistance: 256,
+      collisionUrlBuilder: (fromX, fromZ, toX, toZ) =>
+        `/api/collision?dimension=minecraft:overworld&fromX=${String(fromX)}&fromZ=${String(fromZ)}&toX=${String(toX)}&toZ=${String(toZ)}`,
     });
 
     onTileManager(tileManager);
