@@ -50,6 +50,7 @@ export const DEFAULT_TERMINAL_VELOCITY = 48;
 const MAX_SUBSTEP_DISTANCE = 0.1;
 const CONTACT_EPSILON = 0.001;
 const COLLISION_EPSILON = 1e-9;
+const STEP_HEIGHT = 0.6;
 
 /**
  * Advances velocity and position by one deterministic physics step, then
@@ -77,12 +78,18 @@ export function resolveMovement(request: MovementRequest): MovementResolution {
   const steps = Math.max(1, Math.ceil(maxComponent(distance) / MAX_SUBSTEP_DISTANCE));
   const stepDistance = scale(distance, 1 / steps);
 
+  const initialPosition = { ...position };
+  const initialStepDistance = { ...stepDistance };
+  let xBlocked = false;
+  let zBlocked = false;
+
   for (let step = 0; step < steps; step += 1) {
     const xResult = moveAxis(position, 'x', stepDistance.x, bounds, request.world);
     position.x = xResult.position;
     if (xResult.blocked) {
       velocity.x = 0;
       stepDistance.x = 0;
+      xBlocked = true;
     }
 
     const yResult = moveAxis(position, 'y', stepDistance.y, bounds, request.world);
@@ -97,6 +104,33 @@ export function resolveMovement(request: MovementRequest): MovementResolution {
     if (zResult.blocked) {
       velocity.z = 0;
       stepDistance.z = 0;
+      zBlocked = true;
+    }
+  }
+
+  if ((xBlocked || zBlocked) && hasGroundBelow(position, bounds, request.world)) {
+    const elevatedStart = { x: position.x, y: position.y + STEP_HEIGHT, z: position.z };
+    if (!intersectsSolidBlock(elevatedStart, bounds, request.world)) {
+      const remainingX = (initialStepDistance.x * steps) - (position.x - initialPosition.x);
+      const remainingZ = (initialStepDistance.z * steps) - (position.z - initialPosition.z);
+      const elevatedTarget = { ...elevatedStart };
+
+      if (xBlocked && remainingX !== 0) {
+        const xResult = moveAxis(elevatedTarget, 'x', remainingX, bounds, request.world);
+        elevatedTarget.x = xResult.position;
+      }
+      if (zBlocked && remainingZ !== 0) {
+        const zResult = moveAxis(elevatedTarget, 'z', remainingZ, bounds, request.world);
+        elevatedTarget.z = zResult.position;
+      }
+
+      if (!intersectsSolidBlock(elevatedTarget, bounds, request.world)) {
+        position.x = elevatedTarget.x;
+        position.z = elevatedTarget.z;
+        position.y = elevatedTarget.y;
+        const snapResult = moveAxis(position, 'y', -STEP_HEIGHT, bounds, request.world);
+        position.y = snapResult.position;
+      }
     }
   }
 

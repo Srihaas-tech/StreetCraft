@@ -50,6 +50,10 @@ export class TileManager {
     return this.solidBlocks.get(`${bx},${bz}`);
   }
 
+  getTileCount(): number {
+    return this.tiles.size;
+  }
+
   private buildCollisionData(mesh: Mesh): void {
     const geo = mesh.geometry;
     const posAttr = geo.getAttribute('position') as BufferAttribute | undefined;

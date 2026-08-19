@@ -388,6 +388,7 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
         `Y=${camera.position.y.toFixed(2)} vel=${cameraController.velocity.y.toFixed(2)} ` +
         `gnd=${cameraController.grounded} ptr=${pointerLocked} ` +
         `surf=${surf} foot=${footBlock} ` +
+        `tiles=${activeTileManager?.getTileCount() ?? 0} ` +
         `keys=${input.isPressed('KeyW')}${input.isPressed('KeyA')}${input.isPressed('KeyS')}${input.isPressed('KeyD')} ` +
         `dt=${delta.toFixed(4)}`;
     }
