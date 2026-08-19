@@ -1,5 +1,5 @@
 plugins {
-    id 'fabric-loom' version '1.8-SNAPSHOT'
+    id 'fabric-loom' version '1.11.4'
     id 'maven-publish'
 }
 
@@ -34,9 +34,6 @@ processResources {
 }
 
 java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
-    }
     sourceCompatibility = JavaVersion.VERSION_21
     targetCompatibility = JavaVersion.VERSION_21
     withSourcesJar()
