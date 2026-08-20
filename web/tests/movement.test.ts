@@ -274,8 +274,8 @@ function resolveInWorld(
 }
 
 describe('collision resolution', () => {
-  it('uses the requested two-block-high, one-block-wide player body', () => {
-    expect(DEFAULT_PLAYER_BOUNDS).toEqual({ width: 1, height: 2, eyeHeight: 1.62 });
+  it('uses the Minecraft player hitbox with doorway clearance', () => {
+    expect(DEFAULT_PLAYER_BOUNDS).toEqual({ width: 0.6, height: 1.8, eyeHeight: 1.62 });
   });
 
   it('clamps leftward movement against a negative-coordinate wall (catches incorrect block flooring)', () => {
@@ -284,7 +284,7 @@ describe('collision resolution', () => {
 
     const result = resolveInWorld(world, { x: 0, y: 2.62, z: 0.5 }, { x: -5, y: 0, z: 0 }, 1);
 
-    expect(result.position.x).toBeCloseTo(-0.5, 6);
+    expect(result.position.x).toBeCloseTo(-0.7, 6);
     expect(result.position.y).toBe(2.62);
     expect(result.position.z).toBe(0.5);
     expect(result.velocity.x).toBe(0);
@@ -298,7 +298,7 @@ describe('collision resolution', () => {
 
     expect(result.position.x).toBe(0.5);
     expect(result.position.y).toBe(2.62);
-    expect(result.position.z).toBeCloseTo(-0.5, 6);
+    expect(result.position.z).toBeCloseTo(-0.7, 6);
     expect(result.velocity.z).toBe(0);
   });
 
@@ -309,7 +309,7 @@ describe('collision resolution', () => {
     const result = resolveInWorld(world, { x: 0.5, y: 2.62, z: 0.5 }, { x: 0, y: 5, z: 0 }, 1);
 
     expect(result.position.x).toBe(0.5);
-    expect(result.position.y).toBeCloseTo(2.62, 6);
+    expect(result.position.y).toBeCloseTo(2.82, 6);
     expect(result.position.z).toBe(0.5);
     expect(result.velocity.y).toBe(0);
     expect(result.grounded).toBe(false);
@@ -321,7 +321,7 @@ describe('collision resolution', () => {
 
     const result = resolveInWorld(world, { x: 0, y: 2.62, z: 0.5 }, { x: 100, y: 0, z: 0 }, 1);
 
-    expect(result.position.x).toBeCloseTo(1.5, 6);
+    expect(result.position.x).toBeCloseTo(1.7, 6);
     expect(result.velocity.x).toBe(0);
   });
 
@@ -391,7 +391,7 @@ describe('street view physics', () => {
 
     controller.update(1);
 
-    expect(controller.position.x).toBeCloseTo(0.5, 4);
+    expect(controller.position.x).toBeCloseTo(0.7, 4);
   });
 
   it('reports grounded when standing on a solid surface (catches falling through a floor)', () => {
