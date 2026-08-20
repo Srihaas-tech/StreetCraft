@@ -122,7 +122,7 @@ public final class CollisionReader {
         private boolean isCollidable(BlockPos position) {
             var state = world.getBlockState(position);
             return !state.isIn(BlockTags.LEAVES)
-                    && !state.getCollisionShape(world, position).isEmpty();
+                    && state.isFullCube(world, position);
         }
     }
 }

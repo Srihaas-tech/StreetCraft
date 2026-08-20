@@ -83,6 +83,7 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
   let selectedBlockY = -1;
   let selectedBlockZ = -1;
   let selectedBlockIsContainer = false;
+  let blockInfoRequestId = 0;
 
   renderer.domElement.addEventListener('click', () => {
     if (!pointerLocked) {
@@ -127,6 +128,7 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
     if (hit === undefined) return;
 
     const blockInfo = createBlockInfo('unknown', { x: hit.x, y: hit.y, z: hit.z });
+    renderBlockInfoPanel(blockInfoContainer, blockInfo);
     selectedBlockX = hit.x;
     selectedBlockY = hit.y;
     selectedBlockZ = hit.z;
@@ -136,11 +138,13 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
   });
 
   async function fetchBlockInfo(x: number, y: number, z: number, fallback: ReturnType<typeof createBlockInfo>) {
+    const requestId = ++blockInfoRequestId;
     try {
       const response = await fetch(
         `/api/block?dimension=minecraft:overworld&x=${String(x)}&y=${String(y)}&z=${String(z)}`,
         { credentials: 'same-origin' },
       );
+      if (requestId !== blockInfoRequestId) return;
       if (response.ok) {
         const data = await response.json() as { blockId: string; supportedContainer: boolean };
         const info = createBlockInfo(data.blockId, { x, y, z });
@@ -151,7 +155,7 @@ export function mountStreetCraftApp(container: HTMLElement): StreetCraftApp {
         renderBlockInfoPanel(blockInfoContainer, fallback);
       }
     } catch {
-      renderBlockInfoPanel(blockInfoContainer, fallback);
+      if (requestId === blockInfoRequestId) renderBlockInfoPanel(blockInfoContainer, fallback);
     }
   }
 

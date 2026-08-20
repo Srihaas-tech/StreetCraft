@@ -39,8 +39,8 @@ export interface MovementRequest {
 }
 
 export const DEFAULT_PLAYER_BOUNDS: Readonly<PlayerBounds> = {
-  width: 0.6,
-  height: 1.8,
+  width: 1,
+  height: 2,
   eyeHeight: 1.62,
 };
 
