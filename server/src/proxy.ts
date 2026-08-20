@@ -17,13 +17,21 @@ const CONTAINER_SIZES = {
   shulker_box: 27,
 } as const;
 
-type ProxyRoute = 'container' | 'block';
+type ProxyRoute = 'container' | 'block' | 'collision';
 
 interface PositionQuery {
   dimension: string;
   x: number;
   y: number;
   z: number;
+}
+
+interface CollisionQuery {
+  dimension: string;
+  fromX: number;
+  fromZ: number;
+  toX: number;
+  toZ: number;
 }
 
 interface SafeTooltipData {
@@ -49,6 +57,13 @@ interface ContainerDto {
 interface BlockDto extends PositionQuery {
   blockId: string;
   supportedContainer: boolean;
+}
+
+interface CollisionDto {
+  dimension: string;
+  fromX: number;
+  fromZ: number;
+  blocks: number[];
 }
 
 export interface ApiProxyOptions {
@@ -101,7 +116,9 @@ export class ApiProxy {
       return;
     }
 
-    const query = parsePositionQuery(request.url, route);
+    const query = route === 'collision'
+      ? parseCollisionQuery(request.url)
+      : parsePositionQuery(request.url, route);
     if (query === null) {
       sendJson(response, 400, { error: 'invalid_request' });
       return;
@@ -150,7 +167,7 @@ export class ApiProxy {
       if (upstreamResponse.status === 404) {
         await cancelBody(upstreamResponse);
         sendJson(response, 404, {
-          error: route === 'container' ? 'container_not_found' : 'block_not_found',
+          error: route === 'container' ? 'container_not_found' : route === 'block' ? 'block_not_found' : 'collision_not_found',
         });
         return;
       }
@@ -175,7 +192,15 @@ export class ApiProxy {
         sendJson(response, 200, value);
         return;
       }
-      if (!isBlockDto(value, query)) {
+      if (route === 'collision') {
+        if (!isCollisionDto(value, query as CollisionQuery)) {
+          sendJson(response, 502, { error: 'upstream_unavailable' });
+          return;
+        }
+        sendJson(response, 200, value);
+        return;
+      }
+      if (!isBlockDto(value, query as PositionQuery)) {
         sendJson(response, 502, { error: 'upstream_unavailable' });
         return;
       }
@@ -204,6 +229,9 @@ export function proxyRoute(requestTarget: string | undefined): ProxyRoute | null
   }
   if (path === '/api/block') {
     return 'block';
+  }
+  if (path === '/api/collision') {
+    return 'collision';
   }
   return null;
 }
@@ -272,6 +300,22 @@ function parsePositionQuery(requestTarget: string | undefined, route: ProxyRoute
   return { dimension, x, y, z };
 }
 
+function parseCollisionQuery(requestTarget: string | undefined): CollisionQuery | null {
+  if (requestTarget === undefined || Buffer.byteLength(requestTarget, 'utf8') > MAX_REQUEST_TARGET_BYTES) return null;
+  const separator = requestTarget.indexOf('?');
+  if (separator === -1 || requestTarget.slice(0, separator) !== '/api/collision') return null;
+  const values = new URLSearchParams(requestTarget.slice(separator + 1));
+  if (Array.from(values.keys()).length !== 5) return null;
+  const dimension = values.get('dimension');
+  const fromX = parseCoordinate(values.get('fromX') ?? undefined);
+  const fromZ = parseCoordinate(values.get('fromZ') ?? undefined);
+  const toX = parseCoordinate(values.get('toX') ?? undefined);
+  const toZ = parseCoordinate(values.get('toZ') ?? undefined);
+  if (dimension === null || !isIdentifier(dimension) || fromX === null || fromZ === null || toX === null || toZ === null) return null;
+  if (fromX > toX || fromZ > toZ || (toX - fromX + 1) * (toZ - fromZ + 1) > 1024) return null;
+  return { dimension, fromX, fromZ, toX, toZ };
+}
+
 function strictDecode(encoded: string): string {
   const bytes: number[] = [];
   for (let index = 0; index < encoded.length; index += 1) {
@@ -307,12 +351,21 @@ function parseCoordinate(value: string | undefined): number | null {
     : null;
 }
 
-function buildUpstreamUrl(origin: string, route: ProxyRoute, query: PositionQuery): string {
+function buildUpstreamUrl(origin: string, route: ProxyRoute, query: PositionQuery | CollisionQuery): string {
   const url = new URL(`/${route}`, origin);
   url.searchParams.set('dimension', query.dimension);
-  url.searchParams.set('x', String(query.x));
-  url.searchParams.set('y', String(query.y));
-  url.searchParams.set('z', String(query.z));
+  if (route === 'collision') {
+    const collision = query as CollisionQuery;
+    url.searchParams.set('fromX', String(collision.fromX));
+    url.searchParams.set('fromZ', String(collision.fromZ));
+    url.searchParams.set('toX', String(collision.toX));
+    url.searchParams.set('toZ', String(collision.toZ));
+  } else {
+    const position = query as PositionQuery;
+    url.searchParams.set('x', String(position.x));
+    url.searchParams.set('y', String(position.y));
+    url.searchParams.set('z', String(position.z));
+  }
   return url.href;
 }
 
@@ -426,6 +479,14 @@ function isBlockDto(value: unknown, query: PositionQuery): value is BlockDto {
     && typeof value.blockId === 'string'
     && isIdentifier(value.blockId)
     && typeof value.supportedContainer === 'boolean';
+}
+
+function isCollisionDto(value: unknown, query: CollisionQuery): value is CollisionDto {
+  if (!isExactObject(value, ['dimension', 'fromX', 'fromZ', 'blocks'])
+      || value.dimension !== query.dimension || value.fromX !== query.fromX || value.fromZ !== query.fromZ
+      || !Array.isArray(value.blocks) || value.blocks.length % 3 !== 0) return false;
+  return value.blocks.every((coordinate) => Number.isInteger(coordinate)
+    && coordinate >= INT32_MIN && coordinate <= INT32_MAX);
 }
 
 function isIdentifier(value: string): boolean {

@@ -1,7 +1,7 @@
 import { Scene, Object3D, Mesh, BufferAttribute } from 'three';
 import type { HiresTileLoader } from './hires-tile-loader';
 import type { HiresTileSettings } from './hires-tile-loader';
-import { fetchCollisionHeights } from './collision-client';
+import { CollisionBlockIndex, fetchCollisionHeights, type CollisionResponse } from './collision-client';
 
 export interface TileManagerOptions {
   loader: HiresTileLoader;
@@ -24,7 +24,7 @@ export class TileManager {
   private readonly collisionUrlBuilder: ((fromX: number, fromZ: number, toX: number, toZ: number) => string) | undefined;
   private readonly tiles = new Map<string, Mesh>();
   private readonly loading = new Set<string>();
-  private readonly solidBlocks = new Map<string, number>();
+  private readonly collisionBlocks = new CollisionBlockIndex();
   private centerTileX = Infinity;
   private centerTileZ = Infinity;
   private scheduledUpdate: ReturnType<typeof setTimeout> | null = null;
@@ -39,15 +39,13 @@ export class TileManager {
   }
 
   isSolidBlock(x: number, y: number, z: number): boolean {
-    const key = `${x},${z}`;
-    const maxY = this.solidBlocks.get(key);
-    return maxY !== undefined && y < maxY;
+    return this.collisionBlocks.isSolidBlock(x, y, z);
   }
 
   getSurfaceHeight(worldX: number, worldZ: number): number | undefined {
     const bx = Math.floor(worldX);
     const bz = Math.floor(worldZ);
-    return this.solidBlocks.get(`${bx},${bz}`);
+    return this.collisionBlocks.getSurfaceHeight(bx, bz);
   }
 
   getTileCount(): number {
@@ -81,11 +79,7 @@ export class TileManager {
       const wx = Math.floor(posAttr.getX(i) * sx + px);
       const wy = Math.floor(posAttr.getY(i));
       const wz = Math.floor(posAttr.getZ(i) * sz + pz);
-      const key = `${wx},${wz}`;
-      const prev = this.solidBlocks.get(key);
-      if (prev === undefined || wy > prev) {
-        this.solidBlocks.set(key, wy);
-      }
+      this.collisionBlocks.addBlock(wx, wy, wz);
     }
   }
 
@@ -107,21 +101,11 @@ export class TileManager {
       columns.add(`${wx},${wz}`);
     }
 
-    for (const key of columns) {
-      this.solidBlocks.delete(key);
-    }
+    this.collisionBlocks.removeColumns(columns);
   }
 
-  private applyServerCollision(collision: { fromX: number; fromZ: number; width: number; depth: number; heights: number[] }): void {
-    const { fromX, fromZ, width, depth, heights } = collision;
-    for (let dz = 0; dz < depth; dz++) {
-      for (let dx = 0; dx < width; dx++) {
-        const y = heights[dz * width + dx] ?? -1;
-        if (y > -1) {
-          this.solidBlocks.set(`${fromX + dx},${fromZ + dz}`, y);
-        }
-      }
-    }
+  private applyServerCollision(collision: CollisionResponse): void {
+    this.collisionBlocks.replaceRegion(collision);
   }
 
   private triggerDeferredLoad(): void {
@@ -256,6 +240,6 @@ export class TileManager {
     }
     this.tiles.clear();
     this.loading.clear();
-    this.solidBlocks.clear();
+    this.collisionBlocks.clear();
   }
 }

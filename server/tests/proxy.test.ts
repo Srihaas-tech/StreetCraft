@@ -103,6 +103,29 @@ function expectProxyHeaders(response: Response): void {
 }
 
 describe('authenticated API proxy', () => {
+  it('serves sparse public collision blocks without filling air below structures', async () => {
+    const upstream = await startUpstream((request, response) => {
+      expect(request.url).toBe('/collision?dimension=minecraft%3Aoverworld&fromX=0&fromZ=0&toX=1&toZ=1');
+      upstreamJson(response, {
+        dimension: 'minecraft:overworld',
+        fromX: 0,
+        fromZ: 0,
+        blocks: [0, 64, 0, 0, 70, 0],
+      });
+    });
+    const { baseUrl } = await startStreetCraft({ fabricApiOrigin: upstream });
+
+    const response = await fetch(`${baseUrl}/api/collision?dimension=minecraft:overworld&fromX=0&fromZ=0&toX=1&toZ=1`);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      dimension: 'minecraft:overworld',
+      fromX: 0,
+      fromZ: 0,
+      blocks: [0, 64, 0, 0, 70, 0],
+    });
+  });
+
   it('authenticates container requests before query validation or any upstream call', async () => {
     let upstreamCalls = 0;
     const origin = await startUpstream((_request, response) => {

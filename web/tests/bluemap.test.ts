@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BlueMapAssetSource } from '../src/bluemap/asset-source';
+import { CollisionBlockIndex } from '../src/bluemap/collision-client';
 import {
   BlueMapAssetRequestError,
   BlueMapMetadataError,
@@ -139,5 +140,22 @@ describe('BlueMap world transforms', () => {
         translate: { x: 3, z: -4 },
       },
     )).toEqual({ x: 195, z: -36 });
+  });
+});
+
+describe('server collision blocks', () => {
+  it('keeps open air below a roof traversable', () => {
+    const collision = new CollisionBlockIndex();
+    collision.replaceRegion({
+      dimension: 'minecraft:overworld',
+      fromX: 0,
+      fromZ: 0,
+      blocks: [0, 64, 0, 0, 70, 0],
+    });
+
+    expect(collision.isSolidBlock(0, 64, 0)).toBe(true);
+    expect(collision.isSolidBlock(0, 65, 0)).toBe(false);
+    expect(collision.isSolidBlock(0, 70, 0)).toBe(true);
+    expect(collision.getSurfaceHeight(0, 0)).toBe(71);
   });
 });

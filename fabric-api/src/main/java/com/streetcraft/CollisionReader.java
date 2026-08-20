@@ -2,17 +2,18 @@ package com.streetcraft;
 
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
+import net.minecraft.registry.tag.BlockTags;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
-import net.minecraft.world.Heightmap;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
-import net.minecraft.world.chunk.WorldChunk;
 
+import java.util.ArrayList;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Reads the MOTION_BLOCKING heightmap for a rectangular region of loaded chunks. */
+/** Reads sparse, actually collidable block positions for a rectangular region. */
 public final class CollisionReader {
     private final WorldAccess worldAccess;
 
@@ -40,17 +41,8 @@ public final class CollisionReader {
         }
 
         WorldView world = maybeWorld.get();
-        int width = toX - fromX + 1;
-        int depth = toZ - fromZ + 1;
-        int[] heights = new int[width * depth];
-
-        for (int dz = 0; dz < depth; dz++) {
-            for (int dx = 0; dx < width; dx++) {
-                heights[dz * width + dx] = world.sampleHeightmap(fromX + dx, fromZ + dz);
-            }
-        }
-
-        return new Found(dimensionIdentifier, fromX, fromZ, width, depth, heights);
+        return new Found(dimensionIdentifier, fromX, fromZ,
+                world.collisionBlocks(fromX, fromZ, toX, toZ));
     }
 
     interface WorldAccess {
@@ -58,7 +50,7 @@ public final class CollisionReader {
     }
 
     interface WorldView {
-        int sampleHeightmap(int x, int z);
+        int[] collisionBlocks(int fromX, int fromZ, int toX, int toZ);
     }
 
     public sealed interface ReadResult permits Found, NotFound, InvalidDimension {
@@ -68,13 +60,11 @@ public final class CollisionReader {
             String dimension,
             int fromX,
             int fromZ,
-            int width,
-            int depth,
-            int[] heights
+            int[] blocks
     ) implements ReadResult {
         public Found {
             Objects.requireNonNull(dimension, "dimension");
-            Objects.requireNonNull(heights, "heights");
+            Objects.requireNonNull(blocks, "blocks");
         }
     }
 
@@ -104,14 +94,35 @@ public final class CollisionReader {
 
     private record MinecraftWorldView(ServerWorld world) implements WorldView {
         @Override
-        public int sampleHeightmap(int x, int z) {
-            int chunkX = Math.floorDiv(x, 16);
-            int chunkZ = Math.floorDiv(z, 16);
-            var chunkObj = world.getChunkManager().getChunk(chunkX, chunkZ);
-            if (chunkObj instanceof WorldChunk chunk) {
-                return chunk.getHeightmap(Heightmap.Type.MOTION_BLOCKING).get(x & 15, z & 15);
+        public int[] collisionBlocks(int fromX, int fromZ, int toX, int toZ) {
+            ArrayList<Integer> coordinates = new ArrayList<>();
+            BlockPos.Mutable position = new BlockPos.Mutable();
+            for (int x = fromX; x <= toX; x++) {
+                for (int z = fromZ; z <= toZ; z++) {
+                    for (int y = world.getBottomY(); y < world.getTopY(); y++) {
+                        position.set(x, y, z);
+                        if (isCollidable(position) && isExposed(position)) {
+                            coordinates.add(x);
+                            coordinates.add(y);
+                            coordinates.add(z);
+                        }
+                    }
+                }
             }
-            return -1;
+            return coordinates.stream().mapToInt(Integer::intValue).toArray();
+        }
+
+        private boolean isExposed(BlockPos position) {
+            for (var direction : net.minecraft.util.math.Direction.values()) {
+                if (!isCollidable(position.offset(direction))) return true;
+            }
+            return false;
+        }
+
+        private boolean isCollidable(BlockPos position) {
+            var state = world.getBlockState(position);
+            return !state.isIn(BlockTags.LEAVES)
+                    && !state.getCollisionShape(world, position).isEmpty();
         }
     }
 }

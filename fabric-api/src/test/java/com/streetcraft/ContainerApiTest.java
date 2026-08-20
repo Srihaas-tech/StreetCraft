@@ -339,7 +339,7 @@ class ContainerApiTest {
                 (dimension, x, y, z) -> new ContainerReader.NotFound(),
                 (dimension, x, y, z) -> new BlockReader.NotFound(),
                 (dimension, fromX, fromZ, toX, toZ) -> new CollisionReader.Found(
-                        dimension, fromX, fromZ, 2, 1, new int[]{64, 65}
+                        dimension, fromX, fromZ, new int[]{10, 63, 20, 11, 64, 20}
                 ),
                 immediateScheduler(), listenerFactory, Duration.ofSeconds(1)
         );
@@ -350,7 +350,7 @@ class ContainerApiTest {
         );
 
         assertResponse(response, 200,
-                "{\"dimension\":\"minecraft:overworld\",\"fromX\":10,\"fromZ\":20,\"width\":2,\"depth\":1,\"heights\":[64,65]}");
+                "{\"dimension\":\"minecraft:overworld\",\"fromX\":10,\"fromZ\":20,\"blocks\":[10,63,20,11,64,20]}");
     }
 
     @Test

@@ -19,12 +19,9 @@ class CollisionReaderTest {
     }
 
     @Test
-    void returnsHeightmapValuesForAValidRegion() {
+    void returnsOnlyActuallyCollidableBlocksForAValidRegion() {
         FakeCollisionWorld world = new FakeCollisionWorld();
-        world.setHeight(10, 20, 64);
-        world.setHeight(11, 20, 65);
-        world.setHeight(10, 21, 63);
-        world.setHeight(11, 21, 66);
+        world.setCollisionBlocks(new int[]{10, 63, 20, 11, 64, 21});
 
         CollisionReader.Found found = assertInstanceOf(
                 CollisionReader.Found.class,
@@ -34,10 +31,8 @@ class CollisionReaderTest {
         assertEquals("minecraft:overworld", found.dimension());
         assertEquals(10, found.fromX());
         assertEquals(20, found.fromZ());
-        assertEquals(2, found.width());
-        assertEquals(2, found.depth());
-        assertArrayEquals(new int[]{64, 65, 63, 66}, found.heights());
-        assertEquals(4, world.heightmapReads.get());
+        assertArrayEquals(new int[]{10, 63, 20, 11, 64, 21}, found.blocks());
+        assertEquals(1, world.collisionReads.get());
     }
 
     @Test
@@ -47,7 +42,7 @@ class CollisionReaderTest {
 
         assertInstanceOf(CollisionReader.NotFound.class,
                 new CollisionReader(world).read("minecraft:the_nether", 0, 0, 0, 0));
-        assertEquals(0, world.heightmapReads.get());
+        assertEquals(0, world.collisionReads.get());
     }
 
     @Test
@@ -60,29 +55,25 @@ class CollisionReaderTest {
     }
 
     @Test
-    void handlesSingleBlockRegion() {
+    void preservesAnEmptyRegionWithoutInventingSolidColumns() {
         FakeCollisionWorld world = new FakeCollisionWorld();
-        world.setHeight(5, 10, 72);
 
         CollisionReader.Found found = assertInstanceOf(
                 CollisionReader.Found.class,
                 new CollisionReader(world).read("minecraft:overworld", 5, 10, 5, 10)
         );
 
-        assertEquals(1, found.width());
-        assertEquals(1, found.depth());
-        assertArrayEquals(new int[]{72}, found.heights());
+        assertArrayEquals(new int[0], found.blocks());
     }
 
     private static final class FakeCollisionWorld implements CollisionReader.WorldAccess, CollisionReader.WorldView {
         private final AtomicInteger worldLookups = new AtomicInteger();
-        private final AtomicInteger heightmapReads = new AtomicInteger();
+        private final AtomicInteger collisionReads = new AtomicInteger();
         private boolean worldAvailable = true;
-        private int defaultHeight = -1;
-        private final java.util.Map<Long, Integer> heights = new java.util.HashMap<>();
+        private int[] blocks = new int[0];
 
-        void setHeight(int x, int z, int height) {
-            heights.put(key(x, z), height);
+        void setCollisionBlocks(int[] blocks) {
+            this.blocks = blocks;
         }
 
         @Override
@@ -94,13 +85,9 @@ class CollisionReaderTest {
         }
 
         @Override
-        public int sampleHeightmap(int x, int z) {
-            heightmapReads.incrementAndGet();
-            return heights.getOrDefault(key(x, z), defaultHeight);
-        }
-
-        private static long key(int x, int z) {
-            return ((long) x << 32) | (z & 0xFFFFFFFFL);
+        public int[] collisionBlocks(int fromX, int fromZ, int toX, int toZ) {
+            collisionReads.incrementAndGet();
+            return blocks;
         }
     }
 }

@@ -262,13 +262,11 @@ public final class ContainerApi {
         json.append("{\"dimension\":").append(quote(found.dimension()))
                 .append(",\"fromX\":").append(found.fromX())
                 .append(",\"fromZ\":").append(found.fromZ())
-                .append(",\"width\":").append(found.width())
-                .append(",\"depth\":").append(found.depth())
-                .append(",\"heights\":[");
-        int[] heights = found.heights();
-        for (int i = 0; i < heights.length; i++) {
+                .append(",\"blocks\":[");
+        int[] blocks = found.blocks();
+        for (int i = 0; i < blocks.length; i++) {
             if (i > 0) json.append(',');
-            json.append(heights[i]);
+            json.append(blocks[i]);
         }
         return json.append("]}").toString();
     }
