@@ -1,0 +1,8 @@
+name: StreetCraft-API
+version: ${version}
+main: com.streetcraft.StreetCraftPlugin
+api-version: 1.16
+load: POSTWORLD
+description: Loopback-only HTTP bridge exposing allowlisted, read-only Minecraft state for the StreetCraft web application.
+authors:
+  - streetcraft

@@ -1,15 +1,15 @@
 [Unit]
-Description=StreetCraft web application (Paper server)
-After=network-online.target paper.service
+Description=StreetCraft web application (CoreCraft Fabric server)
+After=network-online.target ccpaper.service
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=pangrusak
-WorkingDirectory=/home/pangrusak/MC_SERVER/streetcraft
+WorkingDirectory=/home/pangrusak/CoreCraft_SERVER/streetcraft
 Environment=NODE_ENV=production
-Environment=STREETCRAFT_PORT=8102
-EnvironmentFile=/home/pangrusak/MC_SERVER/streetcraft/.env
+Environment=STREETCRAFT_PORT=8104
+EnvironmentFile=/home/pangrusak/CoreCraft_SERVER/streetcraft/.env
 ExecStartPre=/home/pangrusak/.nvm/versions/node/v24.16.0/bin/npm run build
 ExecStart=/home/pangrusak/.nvm/versions/node/v24.16.0/bin/node --import tsx server/src/index.ts
 Restart=on-failure
@@ -18,7 +18,7 @@ RestartSec=5
 # Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/home/pangrusak/MC_SERVER/streetcraft
+ReadWritePaths=/home/pangrusak/CoreCraft_SERVER/streetcraft
 
 # Resource limits
 LimitNOFILE=1024

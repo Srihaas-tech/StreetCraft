@@ -7,4 +7,6 @@ test-results/
 .superpowers/
 fabric-api/.gradle/
 fabric-api/build/
+paper-api/.gradle/
+paper-api/build/
 bluemap-source.zip
